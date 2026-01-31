@@ -1,13 +1,10 @@
 # main.py
-# Streamlit Web App (Android/Windows/macOS friendly)
-# - Flow unit conversion
-# - Pressure unit conversion
-# - Kv/Cv from points (>=1)
-# - Fit ΔP = a·Q^n (>=2)
-# - Plot points + fitted curve (Plotly, no matplotlib)
+# Streamlit Web App: Flow/Pressure Converter + Kv/Cv (1 point OK) + Fit (>=2) + PQ Plot
+# Deployable on Streamlit Community Cloud (public URL)
 
 import math
 import numpy as np
+import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
 
@@ -70,9 +67,12 @@ def bar_to_dp(bar, unit):
     return pa_to_dp(dp_to_pa(bar, "bar"), unit)
 
 # ================================
-# Kv/Cv + fitting
+# Kv/Cv logic
 # ================================
 def parse_points(text):
+    """
+    Each line: Q, dP  (comma or space separated)
+    """
     pts = []
     for ln in text.splitlines():
         s = ln.strip()
@@ -97,191 +97,205 @@ def kv_from_point(Q_m3h, dp_bar, sg):
     return Q_m3h * math.sqrt(sg / dp_bar)
 
 def fit_power_law(Qs_m3h, dPs_bar):
-    # dp = a * Q^n  => ln(dp)=ln(a)+n ln(Q)
+    # dp = a * Q^n, with Q in m3/h and dp in bar
     if len(Qs_m3h) < 2:
         raise ValueError("Need at least 2 points to fit.")
-    x = []
-    y = []
+    xs, ys = [], []
     for q, dp in zip(Qs_m3h, dPs_bar):
         if q <= 0 or dp <= 0:
             raise ValueError("All Q and ΔP must be > 0 for fitting.")
-        x.append(math.log(q))
-        y.append(math.log(dp))
-    x = np.array(x, dtype=float)
-    y = np.array(y, dtype=float)
-    n = np.polyfit(x, y, 1)[0]
-    ln_a = np.polyfit(x, y, 1)[1]
-    a = math.exp(ln_a)
-    return a, n
+        xs.append(math.log(q))
+        ys.append(math.log(dp))
+
+    npts = len(xs)
+    xbar = sum(xs) / npts
+    ybar = sum(ys) / npts
+    sxx = sum((x - xbar) ** 2 for x in xs)
+    if sxx == 0:
+        raise ValueError("All Q values identical; cannot fit exponent.")
+    sxy = sum((x - xbar) * (y - ybar) for x, y in zip(xs, ys))
+    n_exp = sxy / sxx
+    a = math.exp(ybar - n_exp * xbar)
+    return a, n_exp
+
+def build_fit_curve(a, n_exp, qmin, qmax, steps=160):
+    # log-spaced curve in internal units (m3/h)
+    if qmin <= 0 or qmax <= 0 or qmin == qmax:
+        return []
+    lmin = math.log10(qmin)
+    lmax = math.log10(qmax)
+    qs = [10 ** (lmin + (lmax - lmin) * i / (steps - 1)) for i in range(steps)]
+    dps = [a * (q ** n_exp) for q in qs]
+    return list(zip(qs, dps))
 
 # ================================
 # Streamlit UI
 # ================================
-st.set_page_config(page_title="Kv / Cv Toolkit", layout="wide")
+st.set_page_config(page_title="Kv/Cv Toolkit", layout="wide")
 
-st.title("Kv / Cv Toolkit (Web)")
-st.caption("Converters + Kv/Cv + Fit + PQ Plot — works on Windows/macOS/Android browser. No matplotlib needed.")
+st.title("Kv / Cv Toolkit")
+st.caption("Flow & Pressure converters + Kv/Cv from points (1 point OK) + Fit (>=2 points) + PQ plot")
 
 tab1, tab2 = st.tabs(["Converters", "Kv/Cv Tool"])
 
+# ---------- Converters ----------
 with tab1:
     c1, c2 = st.columns(2)
 
     with c1:
         st.subheader("Flow Unit Converter")
-        fv = st.number_input("Value", value=100.0, step=1.0, key="flow_val")
-        f_from = st.selectbox("From", FLOW_UNITS, index=4, key="flow_from")  # L/min
-        f_to = st.selectbox("To", FLOW_UNITS, index=0, key="flow_to")        # m3/h
+        fv = st.text_input("Value", "100", key="flow_val")
+        f_from = st.selectbox("From unit", FLOW_UNITS, index=4, key="flow_from")
+        f_to = st.selectbox("To unit", FLOW_UNITS, index=0, key="flow_to")
+
         if st.button("Convert Flow"):
             try:
-                out = m3s_to_flow(flow_to_m3s(fv, f_from), f_to)
-                st.success(f"{out:.6g} {f_to}")
+                v = float(fv)
+                out = m3s_to_flow(flow_to_m3s(v, f_from), f_to)
+                st.success(f"{v:g} {f_from}  =  **{out:.6g} {f_to}**")
             except Exception as e:
                 st.error(str(e))
 
     with c2:
         st.subheader("Pressure Unit Converter")
-        pv = st.number_input("Value ", value=35.0, step=1.0, key="p_val")
-        p_from = st.selectbox("From ", DP_UNITS, index=1, key="p_from")  # kPa
-        p_to = st.selectbox("To ", DP_UNITS, index=2, key="p_to")        # bar
+        pv = st.text_input("Value ", "35", key="p_val")
+        p_from = st.selectbox("From unit ", DP_UNITS, index=1, key="p_from")
+        p_to = st.selectbox("To unit ", DP_UNITS, index=2, key="p_to")
+
         if st.button("Convert Pressure"):
             try:
-                out = pa_to_dp(dp_to_pa(pv, p_from), p_to)
-                st.success(f"{out:.6g} {p_to}")
+                v = float(pv)
+                out = pa_to_dp(dp_to_pa(v, p_from), p_to)
+                st.success(f"{v:g} {p_from}  =  **{out:.6g} {p_to}**")
             except Exception as e:
                 st.error(str(e))
 
+# ---------- Kv/Cv Tool ----------
 with tab2:
-    st.subheader("Kv/Cv from points + Fit + PQ Plot")
+    left, right = st.columns([1.05, 1.0])
 
-    sg = st.number_input("Specific Gravity (SG)", value=1.0, min_value=0.0001, step=0.01)
-    c3, c4 = st.columns(2)
-    with c3:
-        flow_unit = st.selectbox("Flow unit for input points (Q)", FLOW_UNITS, index=4)
-    with c4:
+    with left:
+        st.subheader("Inputs")
+        sg = st.number_input("Specific Gravity (SG)", min_value=0.0001, value=1.0, step=0.01)
+
+        flow_unit = st.selectbox("Flow unit for input points", FLOW_UNITS, index=4)
         dp_unit = st.selectbox("ΔP unit for input points", DP_UNITS, index=1)
 
-    pts_text = st.text_area(
-        "Paste points (Q, ΔP), one per line (comma or space). Example:",
-        value="120, 35\n150, 45\n180, 62\n",
-        height=140
-    )
+        pts_text = st.text_area(
+            "Paste points (Q, ΔP), one per line",
+            value="120, 35\n150, 45\n180, 62\n",
+            height=180
+        )
 
-    if "calc_result" not in st.session_state:
-        st.session_state.calc_result = None
-    if "fit_result" not in st.session_state:
-        st.session_state.fit_result = None
-    if "last_data" not in st.session_state:
-        st.session_state.last_data = None
+        do_calc = st.button("Calculate / Fit", type="primary")
 
-    colA, colB = st.columns([1, 1])
-    with colA:
-        do_calc = st.button("Calculate / Fit")
-    with colB:
-        do_plot = st.button("Plot PQ")
+        if do_calc:
+            try:
+                pts = parse_points(pts_text)
 
-    if do_calc:
-        try:
-            pts = parse_points(pts_text)
-            Q_m3h = [flow_to_m3h(q, flow_unit) for q, _ in pts]
-            dp_bar = [dp_to_bar(dp, dp_unit) for _, dp in pts]
+                Q_m3h = [flow_to_m3h(q, flow_unit) for q, _ in pts]
+                dp_bar = [dp_to_bar(dp, dp_unit) for _, dp in pts]
 
-            kvs = [kv_from_point(Q, dp, sg) for Q, dp in zip(Q_m3h, dp_bar)]
-            cvs = [kv / 0.865 for kv in kvs]
+                kvs = [kv_from_point(Q, dp, sg) for Q, dp in zip(Q_m3h, dp_bar)]
+                cvs = [kv / 0.865 for kv in kvs]
 
-            lines = []
-            lines.append(f"SG = {sg:.4f}")
-            lines.append(f"Input units: Q in {flow_unit}, ΔP in {dp_unit}")
-            lines.append("Internal units: Q in m³/h, ΔP in bar\n")
-            lines.append("Point-wise Kv/Cv:")
-            for i, ((q_in, dp_in), Qint, dpint, kv, cv) in enumerate(zip(pts, Q_m3h, dp_bar, kvs, cvs), 1):
-                lines.append(
-                    f"{i}. Q={q_in:g} {flow_unit} (= {Qint:.6g} m³/h)   "
-                    f"ΔP={dp_in:g} {dp_unit} (= {dpint:.6g} bar)  ->  Kv={kv:.4f}, Cv={cv:.4f}"
+                # store in session
+                st.session_state["last_pts"] = pts
+                st.session_state["last_internal"] = {"Q_m3h": Q_m3h, "dp_bar": dp_bar, "sg": sg}
+                st.session_state["last_units"] = {"flow_unit": flow_unit, "dp_unit": dp_unit}
+
+                fit = None
+                if len(pts) >= 2:
+                    a, n_exp = fit_power_law(Q_m3h, dp_bar)
+                    K0 = math.sqrt(sg / a)
+                    m_exp = 1 - n_exp / 2
+                    fit = {"a": a, "n": n_exp, "K0": K0, "m": m_exp}
+                    st.session_state["last_fit"] = fit
+                else:
+                    st.session_state["last_fit"] = None
+
+                # table
+                df = pd.DataFrame({
+                    f"Q [{flow_unit}]": [p[0] for p in pts],
+                    f"ΔP [{dp_unit}]": [p[1] for p in pts],
+                    "Q [m³/h]": Q_m3h,
+                    "ΔP [bar]": dp_bar,
+                    "Kv": kvs,
+                    "Cv": cvs
+                })
+
+                st.session_state["last_df"] = df
+                st.success("Calculated successfully.")
+
+            except Exception as e:
+                st.error(str(e))
+
+        st.divider()
+        st.subheader("Results")
+
+        df = st.session_state.get("last_df", None)
+        if df is not None:
+            st.dataframe(df, use_container_width=True)
+
+            fit = st.session_state.get("last_fit", None)
+            if fit:
+                st.markdown("**Fitted model (internal units):**")
+                st.code(
+                    f"ΔP = a · Q^n   (Q in m³/h, ΔP in bar)\n"
+                    f"a = {fit['a']:.6g}\n"
+                    f"n = {fit['n']:.6g}\n\n"
+                    f"Kv(Q) = K0 · Q^m\n"
+                    f"K0 = {fit['K0']:.6g}\n"
+                    f"m  = {fit['m']:.6g}\n\n"
+                    f"Cv(Q) = Kv(Q) / 0.865"
                 )
-
-            fit = None
-            if len(pts) >= 2:
-                a, n = fit_power_law(Q_m3h, dp_bar)
-                K0 = math.sqrt(sg / a)
-                m = 1 - n / 2
-                fit = {"a": a, "n": n, "K0": K0, "m": m}
-                lines.append("\nFit model (Q in m³/h, ΔP in bar):")
-                lines.append(f"ΔP = {a:.6g} · Q^{n:.6g}")
-                lines.append("Derived functions:")
-                lines.append(f"Kv(Q) = {K0:.6g} · Q^{m:.6g}")
-                lines.append("Cv(Q) = Kv(Q) / 0.865")
             else:
-                lines.append("\nFit not available (need ≥2 points). Single-point Kv/Cv computed.")
+                st.info("Fit not available (need ≥2 points). Single-point Kv/Cv is already computed.")
 
-            st.session_state.calc_result = "\n".join(lines)
-            st.session_state.fit_result = fit
-            st.session_state.last_data = {
-                "pts": pts,
-                "Q_m3h": Q_m3h,
-                "dp_bar": dp_bar,
-                "flow_unit": flow_unit,
-                "dp_unit": dp_unit,
-            }
+    with right:
+        st.subheader("PQ Plot (Points + Fit)")
 
-            st.success("Calculated.")
-        except Exception as e:
-            st.error(str(e))
+        internal = st.session_state.get("last_internal", None)
+        units = st.session_state.get("last_units", None)
+        fit = st.session_state.get("last_fit", None)
 
-    if st.session_state.calc_result:
-        st.text_area("Results", value=st.session_state.calc_result, height=260)
+        if internal is None or units is None:
+            st.info("Click **Calculate / Fit** first to generate the plot.")
+        else:
+            Q_m3h = internal["Q_m3h"]
+            dp_bar = internal["dp_bar"]
 
-    if do_plot:
-        try:
-            if not st.session_state.last_data:
-                raise ValueError("No data. Click Calculate / Fit first.")
+            # plot in user-selected units
+            fu = units["flow_unit"]
+            pu = units["dp_unit"]
 
-            data = st.session_state.last_data
-            Q_m3h = data["Q_m3h"]
-            dp_bar = data["dp_bar"]
-            flow_unit = data["flow_unit"]
-            dp_unit = data["dp_unit"]
-
-            Q_axis = [m3h_to_flow(q, flow_unit) for q in Q_m3h]
-            dp_axis = [bar_to_dp(dpb, dp_unit) for dpb in dp_bar]
+            Q_axis = [m3h_to_flow(q, fu) for q in Q_m3h]
+            dp_axis = [bar_to_dp(dpb, pu) for dpb in dp_bar]
 
             fig = go.Figure()
             fig.add_trace(go.Scatter(
                 x=Q_axis, y=dp_axis,
-                mode="markers",
-                name="Measured points"
+                mode="markers", name="Measured points"
             ))
 
-            fit = st.session_state.fit_result
             if fit and len(Q_m3h) >= 2:
-                a = fit["a"]
-                n = fit["n"]
-                qmin, qmax = min(Q_m3h), max(Q_m3h)
-                if qmin <= 0 or qmax <= 0 or qmin == qmax:
-                    raise ValueError("Cannot plot fit curve: invalid Q range.")
-
-                steps = 160
-                lmin = math.log10(qmin)
-                lmax = math.log10(qmax)
-                curve_Q_m3h = [10 ** (lmin + (lmax - lmin) * i / (steps - 1)) for i in range(steps)]
-                curve_dp_bar = [a * (q ** n) for q in curve_Q_m3h]
-
-                curve_Q = [m3h_to_flow(q, flow_unit) for q in curve_Q_m3h]
-                curve_dp = [bar_to_dp(dpb, dp_unit) for dpb in curve_dp_bar]
-
-                fig.add_trace(go.Scatter(
-                    x=curve_Q, y=curve_dp,
-                    mode="lines",
-                    name="Fitted curve"
-                ))
+                curve_internal = build_fit_curve(fit["a"], fit["n"], min(Q_m3h), max(Q_m3h), steps=180)
+                if curve_internal:
+                    curve_Q = [m3h_to_flow(q, fu) for q, _ in curve_internal]
+                    curve_dp = [bar_to_dp(dpb, pu) for _, dpb in curve_internal]
+                    fig.add_trace(go.Scatter(
+                        x=curve_Q, y=curve_dp,
+                        mode="lines", name="Fitted curve"
+                    ))
 
             fig.update_layout(
-                title="PQ Curve (Measured + Fit)",
-                xaxis_title=f"Flow [{flow_unit}]",
-                yaxis_title=f"ΔP [{dp_unit}]",
-                template="plotly_white",
+                margin=dict(l=10, r=10, t=40, b=10),
                 height=520,
+                xaxis_title=f"Flow [{fu}]",
+                yaxis_title=f"ΔP [{pu}]",
+                title="PQ Curve"
             )
+            fig.update_xaxes(showgrid=True)
+            fig.update_yaxes(showgrid=True)
+
             st.plotly_chart(fig, use_container_width=True)
-        except Exception as e:
-            st.error(str(e))
