@@ -118,6 +118,42 @@ def ms_to_vel(v_ms, unit):
     if unit == "ft/min":return v_ms * 3.280839895 * 60.0
     raise ValueError(f"Unsupported velocity unit: {unit}")
 
+AREA_UNITS = ["m2", "cm2", "mm2", "in2", "ft2"]
+
+VEL_UNITS = ["m/s", "m/min", "m/h", "ft/s", "ft/min"]
+
+def area_to_m2(a, unit):
+    if unit == "m2":  return a
+    if unit == "cm2": return a * 1e-4
+    if unit == "mm2": return a * 1e-6
+    if unit == "in2": return a * (0.0254 ** 2)
+    if unit == "ft2": return a * (0.3048 ** 2)
+    raise ValueError(f"Unsupported area unit: {unit}")
+
+def m2_to_area(a_m2, unit):
+    if unit == "m2":  return a_m2
+    if unit == "cm2": return a_m2 / 1e-4
+    if unit == "mm2": return a_m2 / 1e-6
+    if unit == "in2": return a_m2 / (0.0254 ** 2)
+    if unit == "ft2": return a_m2 / (0.3048 ** 2)
+    raise ValueError(f"Unsupported area unit: {unit}")
+
+def vel_to_ms(v, unit):
+    if unit == "m/s":   return v
+    if unit == "m/min": return v / 60.0
+    if unit == "m/h":   return v / 3600.0
+    if unit == "ft/s":  return v * 0.3048
+    if unit == "ft/min":return v * 0.3048 / 60.0
+    raise ValueError(f"Unsupported velocity unit: {unit}")
+
+def ms_to_vel(v_ms, unit):
+    if unit == "m/s":   return v_ms
+    if unit == "m/min": return v_ms * 60.0
+    if unit == "m/h":   return v_ms * 3600.0
+    if unit == "ft/s":  return v_ms / 0.3048
+    if unit == "ft/min":return v_ms * 60.0 / 0.3048
+    raise ValueError(f"Unsupported velocity unit: {unit}")
+
 
 # ================================
 # Kv/Cv + fitting
@@ -581,81 +617,136 @@ with tabs[0]:
 
     st.divider()
 
-    # NEW: Velocity calculator
-    st.subheader("Volume Flow Rate + Area → Flow Speed (Velocity)")
+st.subheader("Flow / Velocity / Area Calculator (bi-directional)")
 
-# Persistent storage
-st.session_state.setdefault("vel_result_ms", None)      # store only v in m/s
-st.session_state.setdefault("vel_inputs", None)         # store inputs for display
-st.session_state.setdefault("vel_out_unit", "m/s")      # output unit selection
+# --- session state init ---
+if "va_mode" not in st.session_state:
+    st.session_state.va_mode = "Flow rate + Area → Velocity"
+if "va_vel_ms" not in st.session_state:
+    st.session_state.va_vel_ms = None          # store velocity in m/s
+if "va_flow_m3s" not in st.session_state:
+    st.session_state.va_flow_m3s = None        # store flow in m3/s
+if "va_inputs" not in st.session_state:
+    st.session_state.va_inputs = None          # store last inputs
+if "va_vel_out_unit" not in st.session_state:
+    st.session_state.va_vel_out_unit = "m/s"
+if "va_flow_out_unit" not in st.session_state:
+    st.session_state.va_flow_out_unit = "L/min"
 
-v1, v2, v3, v4 = st.columns([1.2, 1.2, 1.2, 1.2])
-with v1:
-    q_val = st.number_input("Flow rate value", value=100.0, key="vel_q_val")
-with v2:
-    q_unit = st.selectbox("Flow rate unit", FLOW_UNITS, index=4, key="vel_q_unit")  # L/min
-with v3:
-    area_val = st.number_input("Area value", value=100.0, min_value=0.0, key="vel_area_val")
-with v4:
-    area_unit = st.selectbox("Area unit", AREA_UNITS, index=2, key="vel_area_unit")  # mm2
+# --- mode selection ---
+st.session_state.va_mode = st.radio(
+    "Mode",
+    ["Flow rate + Area → Velocity", "Velocity + Area → Flow rate"],
+    horizontal=True
+)
 
-# --- Action buttons ---
+# --- input rows (change depending on mode) ---
+if st.session_state.va_mode == "Flow rate + Area → Velocity":
+    c1, c2, c3, c4 = st.columns([1.2, 1.2, 1.2, 1.2])
+    with c1:
+        q_val = st.number_input("Flow rate value", value=100.0, key="va_q_val")
+    with c2:
+        q_unit = st.selectbox("Flow rate unit", FLOW_UNITS, index=4, key="va_q_unit")  # L/min
+    with c3:
+        a_val = st.number_input("Area value", value=100.0, key="va_a_val")
+    with c4:
+        a_unit = st.selectbox("Area unit", AREA_UNITS, index=2, key="va_a_unit")  # mm2
+
+else:
+    c1, c2, c3, c4 = st.columns([1.2, 1.2, 1.2, 1.2])
+    with c1:
+        v_val = st.number_input("Velocity value", value=1.0, key="va_v_val")
+    with c2:
+        v_unit = st.selectbox("Velocity unit", VEL_UNITS, index=0, key="va_v_unit")  # m/s
+    with c3:
+        a_val = st.number_input("Area value ", value=100.0, key="va_a_val2")
+    with c4:
+        a_unit = st.selectbox("Area unit ", AREA_UNITS, index=2, key="va_a_unit2")  # mm2
+
+# --- action buttons ---
 b1, b2 = st.columns([1, 1])
-
 with b1:
-    btn_vel = st.button("Calculate Velocity", use_container_width=True)
-
+    do_calc = st.button("Calculate", use_container_width=True, key="va_calc_btn")
 with b2:
-    btn_vel_clear = st.button("Clear Result", use_container_width=True)
+    do_clear = st.button("Clear Result", use_container_width=True, key="va_clear_btn")
 
-# --- Result + unit selector (same row) ---
-r1, r2 = st.columns([3, 1])
+if do_clear:
+    st.session_state.va_vel_ms = None
+    st.session_state.va_flow_m3s = None
+    st.session_state.va_inputs = None
 
-with r2:
-    vel_out_unit = st.selectbox(
-        "Output unit",
-        VEL_UNITS,
-        index=VEL_UNITS.index(st.session_state.vel_out_unit),
-        key="vel_out_unit_select"
-    )
-    st.session_state.vel_out_unit = vel_out_unit
-
-# keep selection in session
-st.session_state.vel_out_unit = vel_out_unit
-
-if btn_vel_clear:
-    st.session_state.vel_result_ms = None
-    st.session_state.vel_inputs = None
-
-if btn_vel:
+# --- calculate and store base units ---
+if do_calc:
     try:
-        if area_val <= 0:
-            raise ValueError("Area must be > 0.")
-        Q_m3s = flow_to_m3s(q_val, q_unit)
-        A_m2 = area_to_m2(area_val, area_unit)
-        v_ms = Q_m3s / A_m2
+        # common: area must be > 0
+        A_m2 = area_to_m2(a_val, a_unit)
+        if A_m2 <= 0:
+            raise ValueError("Area must be > 0")
 
-        st.session_state.vel_result_ms = v_ms
-        st.session_state.vel_inputs = (q_val, q_unit, area_val, area_unit)
+        if st.session_state.va_mode == "Flow rate + Area → Velocity":
+            Q_m3s = flow_to_m3s(q_val, q_unit)
+            v_ms = Q_m3s / A_m2
+
+            st.session_state.va_flow_m3s = Q_m3s
+            st.session_state.va_vel_ms = v_ms
+            st.session_state.va_inputs = ("Q+A→v", q_val, q_unit, a_val, a_unit)
+
+        else:
+            v_ms = vel_to_ms(v_val, v_unit)
+            Q_m3s = v_ms * A_m2
+
+            st.session_state.va_flow_m3s = Q_m3s
+            st.session_state.va_vel_ms = v_ms
+            st.session_state.va_inputs = ("v+A→Q", v_val, v_unit, a_val, a_unit)
+
     except Exception as e:
-        st.session_state.vel_result_ms = "__ERROR__"
-        st.session_state.vel_inputs = str(e)
+        st.session_state.va_flow_m3s = "__ERROR__"
+        st.session_state.va_vel_ms = "__ERROR__"
+        st.session_state.va_inputs = str(e)
 
-# Display (updates when output unit changes)
-if st.session_state.vel_result_ms is not None:
-    if st.session_state.vel_result_ms == "__ERROR__":
-        st.error(st.session_state.vel_inputs)
-    else:
-        v_ms = st.session_state.vel_result_ms
-        qv, qu, av, au = st.session_state.vel_inputs
+# --- output unit selectors (kept near result) ---
+out1, out2 = st.columns([2.5, 1])
 
-        v_out = ms_to_vel(v_ms, st.session_state.vel_out_unit)
-
-        st.success(
-            f"Q = {qv:g} {qu},  A = {av:g} {au}  →  "
-            f"**v = {v_out:.6g} {st.session_state.vel_out_unit}** "
-            f"(= {v_ms:.6g} m/s stored)"
+with out2:
+    if st.session_state.va_mode == "Flow rate + Area → Velocity":
+        st.session_state.va_vel_out_unit = st.selectbox(
+            "Output velocity unit",
+            VEL_UNITS,
+            index=VEL_UNITS.index(st.session_state.va_vel_out_unit),
+            key="va_vel_out_unit_sel",
         )
+    else:
+        st.session_state.va_flow_out_unit = st.selectbox(
+            "Output flow unit",
+            FLOW_UNITS,
+            index=FLOW_UNITS.index(st.session_state.va_flow_out_unit),
+            key="va_flow_out_unit_sel",
+        )
+
+# --- show result (always show last result until cleared or recalculated) ---
+if st.session_state.va_vel_ms is not None and st.session_state.va_vel_ms != "__ERROR__":
+    mode_tag = st.session_state.va_inputs[0] if isinstance(st.session_state.va_inputs, tuple) else ""
+    if st.session_state.va_mode == "Flow rate + Area → Velocity":
+        v_out = ms_to_vel(st.session_state.va_vel_ms, st.session_state.va_vel_out_unit)
+        _, qv, qu, av, au = st.session_state.va_inputs
+        st.success(
+            f"{mode_tag}: Q={qv:g} {qu}, A={av:g} {au}  →  "
+            f"**v={v_out:.6g} {st.session_state.va_vel_out_unit}** "
+            f"(stored: {st.session_state.va_vel_ms:.6g} m/s)"
+        )
+    else:
+        q_out = m3s_to_flow(st.session_state.va_flow_m3s, st.session_state.va_flow_out_unit)
+        _, vv, vu, av, au = st.session_state.va_inputs
+        st.success(
+            f"{mode_tag}: v={vv:g} {vu}, A={av:g} {au}  →  "
+            f"**Q={q_out:.6g} {st.session_state.va_flow_out_unit}** "
+            f"(stored: {st.session_state.va_flow_m3s:.6g} m³/s)"
+        )
+
+elif st.session_state.va_vel_ms == "__ERROR__":
+    st.error(st.session_state.va_inputs)
+else:
+    st.info("Enter values and click **Calculate**. You can change the output unit after calculation.")
 
 # ---------- Kv/Cv Tool ----------
 with tabs[1]:
