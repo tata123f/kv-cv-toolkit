@@ -305,6 +305,12 @@ tabs = st.tabs(["Converters", "Kv/Cv Tool"])
 
 # ---------- Converters ----------
 with tabs[0]:
+    # --- init persistent outputs ---
+    if "flow_conv_result" not in st.session_state:
+        st.session_state.flow_conv_result = None
+    if "press_conv_result" not in st.session_state:
+        st.session_state.press_conv_result = None
+
     st.subheader("Flow unit converter")
     c1, c2, c3, c4 = st.columns([1.2, 1.2, 1.2, 1.2])
     with c1:
@@ -321,9 +327,17 @@ with tabs[0]:
     if do_flow:
         try:
             out = m3s_to_flow(flow_to_m3s(flow_val, flow_from), flow_to)
-            st.success(f"{flow_val:g} {flow_from}  →  **{out:.6g} {flow_to}**")
+            st.session_state.flow_conv_result = (flow_val, flow_from, out, flow_to)
         except Exception as e:
-            st.error(str(e))
+            st.session_state.flow_conv_result = ("__ERROR__", str(e))
+
+    # Always show last flow result (until next flow convert)
+    if st.session_state.flow_conv_result is not None:
+        if st.session_state.flow_conv_result[0] == "__ERROR__":
+            st.error(st.session_state.flow_conv_result[1])
+        else:
+            v_in, u_in, v_out, u_out = st.session_state.flow_conv_result
+            st.success(f"{v_in:g} {u_in}  →  **{v_out:.6g} {u_out}**")
 
     st.divider()
 
@@ -343,9 +357,17 @@ with tabs[0]:
     if do_p:
         try:
             out = pa_to_dp(dp_to_pa(p_val, p_from), p_to)
-            st.success(f"{p_val:g} {p_from}  →  **{out:.6g} {p_to}**")
+            st.session_state.press_conv_result = (p_val, p_from, out, p_to)
         except Exception as e:
-            st.error(str(e))
+            st.session_state.press_conv_result = ("__ERROR__", str(e))
+
+    # Always show last pressure result (until next pressure convert)
+    if st.session_state.press_conv_result is not None:
+        if st.session_state.press_conv_result[0] == "__ERROR__":
+            st.error(st.session_state.press_conv_result[1])
+        else:
+            v_in, u_in, v_out, u_out = st.session_state.press_conv_result
+            st.success(f"{v_in:g} {u_in}  →  **{v_out:.6g} {u_out}**")
 
 
 # ---------- Kv/Cv Tool ----------
