@@ -14,7 +14,7 @@ import streamlit as st
 # Units
 # ================================
 FLOW_UNITS = ["m3/h", "m3/s", "m3/min", "L/h", "L/min", "L/s", "gpm (US)", "gpm (Imp)", "cfm"]
-DP_UNITS = ["Pa", "kPa", "bar", "MPa", "psi"]
+DP_UNITS = ["Pa", "kPa", "bar", "MPa", "psi", "inH2O", "mmAq"]
 
 
 def flow_to_m3s(flow, unit):
@@ -76,6 +76,27 @@ def dp_to_bar(dp, unit):
 def bar_to_dp(bar, unit):
     # bar -> Pa -> unit
     return pa_to_dp(dp_to_pa(bar, "bar"), unit)
+
+
+def dp_to_pa(dp, unit):
+    if unit == "Pa":   return dp
+    if unit == "kPa":  return dp * 1_000.0
+    if unit == "bar":  return dp * 100_000.0
+    if unit == "MPa":  return dp * 1_000_000.0
+    if unit == "psi":  return dp * 6894.757293168
+    if unit == "inH2O": return dp * 249.08891
+    if unit == "mmAq":  return dp * 9.80665
+    raise ValueError(f"Unsupported pressure unit: {unit}")
+
+def pa_to_dp(pa, unit):
+    if unit == "Pa":   return pa
+    if unit == "kPa":  return pa / 1_000.0
+    if unit == "bar":  return pa / 100_000.0
+    if unit == "MPa":  return pa / 1_000_000.0
+    if unit == "psi":  return pa / 6894.757293168
+    if unit == "inH2O": return pa / 249.08891
+    if unit == "mmAq":  return pa / 9.80665
+    raise ValueError(f"Unsupported pressure unit: {unit}")
 
 
 # ================================
