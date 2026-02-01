@@ -1,7 +1,8 @@
 # main.py
 # Streamlit Web App (Public URL friendly)
 # - Flow unit converter
-# - Pressure unit converter
+# - Pressure unit converter (includes inH2O, mmAq)
+# - Pressure head calculator (same tab as converters)
 # - Kv/Cv from points (>=1 point)
 # - Fit ΔP = a·Q^n (>=2 points)
 # - PQ plot (Measured + Fit) using pure SVG (NO matplotlib, NO plotly)
@@ -18,17 +19,10 @@ DP_UNITS = ["Pa", "kPa", "bar", "MPa", "psi", "inH2O", "mmAq"]
 
 G0 = 9.80665  # m/s²
 
-def pressure_to_head(dp_value, unit, sg):
-    rho = 1000.0 * sg
-    pa = dp_to_pa(dp_value, unit)
-    return pa / (rho * G0)
 
-def head_to_pressure(head_m, unit, sg):
-    rho = 1000.0 * sg
-    pa = head_m * rho * G0
-    return pa_to_dp(pa, unit)
-
-
+# ================================
+# Unit conversions
+# ================================
 def flow_to_m3s(flow, unit):
     if unit == "m3/s": return flow
     if unit == "m3/min": return flow / 60.0
@@ -69,6 +63,8 @@ def dp_to_pa(dp, unit):
     if unit == "bar": return dp * 100_000.0
     if unit == "MPa": return dp * 1_000_000.0
     if unit == "psi": return dp * 6894.757293168
+    if unit == "inH2O": return dp * 249.08891       # 1 inH2O ≈ 249.08891 Pa
+    if unit == "mmAq": return dp * 9.80665          # 1 mmAq (mmH2O) ≈ 9.80665 Pa
     raise ValueError(f"Unsupported pressure unit: {unit}")
 
 
@@ -78,6 +74,8 @@ def pa_to_dp(pa, unit):
     if unit == "bar": return pa / 100_000.0
     if unit == "MPa": return pa / 1_000_000.0
     if unit == "psi": return pa / 6894.757293168
+    if unit == "inH2O": return pa / 249.08891
+    if unit == "mmAq": return pa / 9.80665
     raise ValueError(f"Unsupported pressure unit: {unit}")
 
 
@@ -86,41 +84,32 @@ def dp_to_bar(dp, unit):
 
 
 def bar_to_dp(bar, unit):
-    # bar -> Pa -> unit
     return pa_to_dp(dp_to_pa(bar, "bar"), unit)
 
 
-def dp_to_pa(dp, unit):
-    if unit == "Pa":   return dp
-    if unit == "kPa":  return dp * 1_000.0
-    if unit == "bar":  return dp * 100_000.0
-    if unit == "MPa":  return dp * 1_000_000.0
-    if unit == "psi":  return dp * 6894.757293168
-    if unit == "inH2O": return dp * 249.08891
-    if unit == "mmAq":  return dp * 9.80665
-    raise ValueError(f"Unsupported pressure unit: {unit}")
+# ================================
+# Pressure head
+# ================================
+def pressure_to_head(dp_value, unit, sg):
+    if sg <= 0:
+        raise ValueError("SG must be > 0")
+    rho = 1000.0 * sg
+    pa = dp_to_pa(dp_value, unit)
+    return pa / (rho * G0)
 
-def pa_to_dp(pa, unit):
-    if unit == "Pa":   return pa
-    if unit == "kPa":  return pa / 1_000.0
-    if unit == "bar":  return pa / 100_000.0
-    if unit == "MPa":  return pa / 1_000_000.0
-    if unit == "psi":  return pa / 6894.757293168
-    if unit == "inH2O": return pa / 249.08891
-    if unit == "mmAq":  return pa / 9.80665
-    raise ValueError(f"Unsupported pressure unit: {unit}")
+
+def head_to_pressure(head_m, unit, sg):
+    if sg <= 0:
+        raise ValueError("SG must be > 0")
+    rho = 1000.0 * sg
+    pa = head_m * rho * G0
+    return pa_to_dp(pa, unit)
 
 
 # ================================
 # Kv/Cv + fitting
 # ================================
 def parse_points(text):
-    """
-    Accept lines like:
-      120, 35
-      150  45
-    returns list[(Q, dP)] in input units
-    """
     pts = []
     for ln in text.splitlines():
         s = ln.strip()
@@ -147,10 +136,6 @@ def kv_from_point(Q_m3h, dp_bar, sg):
 
 
 def fit_power_law(Qs_m3h, dPs_bar):
-    """
-    Fit dp = a * Q^n
-    Q in m3/h, dp in bar
-    """
     if len(Qs_m3h) < 2:
         raise ValueError("Need at least 2 points to fit.")
     xs, ys = [], []
@@ -175,22 +160,16 @@ def fit_power_law(Qs_m3h, dPs_bar):
 # Pure SVG plotting (with ticks)
 # ================================
 def nice_ticks(vmin, vmax, nticks=6):
-    """Generate 'nice' ticks using 1-2-5 rule."""
     if vmax <= vmin:
         return [vmin]
     span = vmax - vmin
     raw_step = span / max(1, (nticks - 1))
-
     p = 10 ** math.floor(math.log10(raw_step))
     r = raw_step / p
-    if r <= 1:
-        step = 1 * p
-    elif r <= 2:
-        step = 2 * p
-    elif r <= 5:
-        step = 5 * p
-    else:
-        step = 10 * p
+    if r <= 1: step = 1 * p
+    elif r <= 2: step = 2 * p
+    elif r <= 5: step = 5 * p
+    else: step = 10 * p
 
     start = math.floor(vmin / step) * step
     ticks = []
@@ -199,7 +178,6 @@ def nice_ticks(vmin, vmax, nticks=6):
         if t >= vmin - 0.5 * step:
             ticks.append(t)
         t += step
-
     if len(ticks) > 12:
         ticks = ticks[::2]
     return ticks
@@ -207,23 +185,15 @@ def nice_ticks(vmin, vmax, nticks=6):
 
 def fmt_tick(x):
     ax = abs(x)
-    if ax >= 1000:
-        return f"{x:.0f}"
-    if ax >= 100:
-        return f"{x:.0f}"
-    if ax >= 10:
-        return f"{x:.1f}".rstrip("0").rstrip(".")
-    if ax >= 1:
-        return f"{x:.2f}".rstrip("0").rstrip(".")
+    if ax >= 1000: return f"{x:.0f}"
+    if ax >= 100:  return f"{x:.0f}"
+    if ax >= 10:   return f"{x:.1f}".rstrip("0").rstrip(".")
+    if ax >= 1:    return f"{x:.2f}".rstrip("0").rstrip(".")
     return f"{x:.3g}"
 
 
 def svg_plot(points, curve=None, width=980, height=520,
              title="PQ Curve (Measured + Fit)", xlabel="Flow", ylabel="ΔP"):
-    """
-    points: list[(x,y)] in display units
-    curve:  list[(x,y)] optional, in display units
-    """
     if not points:
         return "<div>No data</div>"
 
@@ -245,10 +215,8 @@ def svg_plot(points, curve=None, width=980, height=520,
 
     xpad = (xmax - xmin) * 0.08
     ypad = (ymax - ymin) * 0.10
-    xmin -= xpad
-    xmax += xpad
-    ymin -= ypad
-    ymax += ypad
+    xmin -= xpad; xmax += xpad
+    ymin -= ypad; ymax += ypad
 
     ml, mr, mt, mb = 88, 26, 56, 78
     px0, py0 = ml, mt
@@ -269,57 +237,47 @@ def svg_plot(points, curve=None, width=980, height=520,
         f'style="background:white;border-radius:14px;border:1px solid #ddd;">'
     )
 
-    # Title
     svg.append(
         f'<text x="{width/2}" y="36" text-anchor="middle" '
         f'font-size="20" font-weight="700" fill="#111">{title}</text>'
     )
 
-    # Plot area
     svg.append(f'<rect x="{px0}" y="{py0}" width="{px1-px0}" height="{py1-py0}" fill="white" stroke="#cfcfcf"/>')
 
-    # Grid + ticks
     for t in xticks:
         x = xmap(t)
         svg.append(f'<line x1="{x:.2f}" y1="{py0}" x2="{x:.2f}" y2="{py1}" stroke="#f0f0f0"/>')
         svg.append(f'<line x1="{x:.2f}" y1="{py1}" x2="{x:.2f}" y2="{py1+7}" stroke="#888"/>')
-        svg.append(
-            f'<text x="{x:.2f}" y="{py1+28}" text-anchor="middle" font-size="12" fill="#222">{fmt_tick(t)}</text>'
-        )
+        svg.append(f'<text x="{x:.2f}" y="{py1+28}" text-anchor="middle" font-size="12" fill="#222">{fmt_tick(t)}</text>')
 
     for t in yticks:
         y = ymap(t)
         svg.append(f'<line x1="{px0}" y1="{y:.2f}" x2="{px1}" y2="{y:.2f}" stroke="#f0f0f0"/>')
         svg.append(f'<line x1="{px0-7}" y1="{y:.2f}" x2="{px0}" y2="{y:.2f}" stroke="#888"/>')
-        svg.append(
-            f'<text x="{px0-12}" y="{y+4:.2f}" text-anchor="end" font-size="12" fill="#222">{fmt_tick(t)}</text>'
-        )
+        svg.append(f'<text x="{px0-12}" y="{y+4:.2f}" text-anchor="end" font-size="12" fill="#222">{fmt_tick(t)}</text>')
 
-    # Axis labels
-    svg.append(
-        f'<text x="{(px0+px1)/2}" y="{height-26}" text-anchor="middle" font-size="14" fill="#111">{xlabel}</text>'
-    )
+    svg.append(f'<text x="{(px0+px1)/2}" y="{height-26}" text-anchor="middle" font-size="14" fill="#111">{xlabel}</text>')
     svg.append(
         f'<text x="24" y="{(py0+py1)/2}" text-anchor="middle" font-size="14" fill="#111" '
         f'transform="rotate(-90 24 {(py0+py1)/2})">{ylabel}</text>'
     )
 
-    # Curve
     if curve and len(curve) >= 2:
         pts = " ".join([f"{xmap(x):.2f},{ymap(y):.2f}" for x, y in curve])
         svg.append(f'<polyline points="{pts}" fill="none" stroke="#2b6cb0" stroke-width="3"/>')
 
-    # Points
     for x, y in points:
         cx, cy = xmap(x), ymap(y)
         svg.append(f'<circle cx="{cx:.2f}" cy="{cy:.2f}" r="5.2" fill="#111"/>')
 
-    # Legend
+    # Legend (only show fitted line if exists)
     lx, ly = px0 + 14, py0 + 20
-    svg.append(f'<line x1="{lx}" y1="{ly}" x2="{lx+30}" y2="{ly}" stroke="#2b6cb0" stroke-width="3"/>')
-    svg.append(f'<text x="{lx+40}" y="{ly+4}" font-size="12" fill="#333">Fitted curve</text>')
-    svg.append(f'<circle cx="{lx+15}" cy="{ly+22}" r="5" fill="#111"/>')
-    svg.append(f'<text x="{lx+40}" y="{ly+26}" font-size="12" fill="#333">Measured points</text>')
+    if curve and len(curve) >= 2:
+        svg.append(f'<line x1="{lx}" y1="{ly}" x2="{lx+30}" y2="{ly}" stroke="#2b6cb0" stroke-width="3"/>')
+        svg.append(f'<text x="{lx+40}" y="{ly+4}" font-size="12" fill="#333">Fitted curve</text>')
+        ly += 20
+    svg.append(f'<circle cx="{lx+15}" cy="{ly}" r="5" fill="#111"/>')
+    svg.append(f'<text x="{lx+40}" y="{ly+4}" font-size="12" fill="#333">Measured points</text>')
 
     svg.append("</svg>")
     return "".join(svg)
@@ -331,31 +289,30 @@ def svg_plot(points, curve=None, width=980, height=520,
 st.set_page_config(page_title="Kv/Cv Toolkit", layout="wide")
 
 st.title("Kv / Cv Toolkit (Web)")
-st.caption("Flow + Pressure converters • Kv/Cv (1 point OK) • Fit ΔP=a·Q^n (≥2 points) • PQ plot (SVG, no extra libs)")
+st.caption("Flow + Pressure converters • Pressure Head • Kv/Cv (1 point OK) • Fit ΔP=a·Q^n (≥2 points) • PQ plot (SVG)")
 
 tabs = st.tabs(["Converters", "Kv/Cv Tool"])
 
 
 # ---------- Converters ----------
 with tabs[0]:
-    # --- init persistent outputs ---
-    if "flow_conv_result" not in st.session_state:
-        st.session_state.flow_conv_result = None
-    if "press_conv_result" not in st.session_state:
-        st.session_state.press_conv_result = None
+    # persistent outputs
+    st.session_state.setdefault("flow_conv_result", None)
+    st.session_state.setdefault("press_conv_result", None)
+    st.session_state.setdefault("head_result", None)
 
     st.subheader("Flow unit converter")
     c1, c2, c3, c4 = st.columns([1.2, 1.2, 1.2, 1.2])
     with c1:
         flow_val = st.number_input("Value", value=100.0, key="flow_val")
     with c2:
-        flow_from = st.selectbox("From unit", FLOW_UNITS, index=4, key="flow_from")  # L/min
+        flow_from = st.selectbox("From unit", FLOW_UNITS, index=4, key="flow_from")
     with c3:
-        flow_to = st.selectbox("To unit", FLOW_UNITS, index=0, key="flow_to")  # m3/h
+        flow_to = st.selectbox("To unit", FLOW_UNITS, index=0, key="flow_to")
     with c4:
         st.write("")
         st.write("")
-        do_flow = st.button("Convert Flow", use_container_width=True)
+        do_flow = st.button("Convert Flow", use_container_width=True, key="btn_flow")
 
     if do_flow:
         try:
@@ -364,7 +321,6 @@ with tabs[0]:
         except Exception as e:
             st.session_state.flow_conv_result = ("__ERROR__", str(e))
 
-    # Always show last flow result (until next flow convert)
     if st.session_state.flow_conv_result is not None:
         if st.session_state.flow_conv_result[0] == "__ERROR__":
             st.error(st.session_state.flow_conv_result[1])
@@ -379,13 +335,13 @@ with tabs[0]:
     with p1:
         p_val = st.number_input("Value ", value=35.0, key="p_val")
     with p2:
-        p_from = st.selectbox("From unit ", DP_UNITS, index=1, key="p_from")  # kPa
+        p_from = st.selectbox("From unit ", DP_UNITS, index=1, key="p_from")
     with p3:
-        p_to = st.selectbox("To unit ", DP_UNITS, index=2, key="p_to")  # bar
+        p_to = st.selectbox("To unit ", DP_UNITS, index=2, key="p_to")
     with p4:
         st.write("")
         st.write("")
-        do_p = st.button("Convert Pressure", use_container_width=True)
+        do_p = st.button("Convert Pressure", use_container_width=True, key="btn_press")
 
     if do_p:
         try:
@@ -394,7 +350,6 @@ with tabs[0]:
         except Exception as e:
             st.session_state.press_conv_result = ("__ERROR__", str(e))
 
-    # Always show last pressure result (until next pressure convert)
     if st.session_state.press_conv_result is not None:
         if st.session_state.press_conv_result[0] == "__ERROR__":
             st.error(st.session_state.press_conv_result[1])
@@ -402,46 +357,62 @@ with tabs[0]:
             v_in, u_in, v_out, u_out = st.session_state.press_conv_result
             st.success(f"{v_in:g} {u_in}  →  **{v_out:.6g} {u_out}**")
 
-st.subheader("Pressure Head Calculator")
+    st.divider()
 
-col1, col2, col3 = st.columns(3)
+    # ---- Pressure Head Calculator (inside Converters tab) ----
+    st.subheader("Pressure Head Calculator")
 
-with col1:
-    head_val = st.number_input("Pressure / Head Value", value=10.0)
-
-with col2:
-    head_unit = st.selectbox(
-        "Input Unit",
-        ["Pa", "kPa", "bar", "MPa", "psi", "inH2O", "mmAq", "m"]
+    mode = st.radio(
+        "Mode",
+        ["Pressure → Head (m)", "Head (m) → Pressure"],
+        horizontal=True,
+        key="head_mode"
     )
 
-with col3:
-    sg_val = st.number_input("Specific Gravity", value=1.0, step=0.01)
+    sg_val = st.number_input("Specific Gravity (SG)", value=1.0, step=0.01, key="head_sg")
 
-convert_type = st.radio(
-    "Conversion Type",
-    ["Pressure → Head (m)", "Head (m) → Pressure"],
-    horizontal=True
-)
+    if mode == "Pressure → Head (m)":
+        c1, c2, c3 = st.columns([1.5, 1.2, 1.2])
+        with c1:
+            dp_in = st.number_input("Pressure value", value=10.0, key="dp_in_val")
+        with c2:
+            dp_in_unit = st.selectbox("Pressure unit", DP_UNITS, index=1, key="dp_in_unit")
+        with c3:
+            st.write("")
+            st.write("")
+            do_head = st.button("Calculate Head", use_container_width=True, key="btn_head1")
 
-if st.button("Calculate Head / Pressure"):
-    try:
-        if convert_type == "Pressure → Head (m)":
-            if head_unit == "m":
-                result = head_val
-            else:
-                result = pressure_to_head(head_val, head_unit, sg_val)
-            st.success(f"Head = {result:.4f} m")
+        if do_head:
+            try:
+                head_m = pressure_to_head(dp_in, dp_in_unit, sg_val)
+                st.session_state.head_result = ("Head", head_m, "m")
+            except Exception as e:
+                st.session_state.head_result = ("__ERROR__", str(e), "")
 
+    else:
+        c1, c2, c3 = st.columns([1.5, 1.2, 1.2])
+        with c1:
+            head_in = st.number_input("Head (m)", value=10.0, key="head_in_m")
+        with c2:
+            dp_out_unit = st.selectbox("Output pressure unit", DP_UNITS, index=1, key="dp_out_unit")
+        with c3:
+            st.write("")
+            st.write("")
+            do_press = st.button("Calculate Pressure", use_container_width=True, key="btn_head2")
+
+        if do_press:
+            try:
+                dp_out = head_to_pressure(head_in, dp_out_unit, sg_val)
+                st.session_state.head_result = ("Pressure", dp_out, dp_out_unit)
+            except Exception as e:
+                st.session_state.head_result = ("__ERROR__", str(e), "")
+
+    if st.session_state.head_result is not None:
+        if st.session_state.head_result[0] == "__ERROR__":
+            st.error(st.session_state.head_result[1])
         else:
-            if head_unit == "m":
-                result = head_val
-            else:
-                result = head_to_pressure(head_val, head_unit, sg_val)
-            st.success(f"Pressure = {result:.6g} {head_unit}")
-
-    except Exception as e:
-        st.error(str(e))
+            kind, val, unit = st.session_state.head_result
+            st.success(f"{kind} = **{val:.6g} {unit}**")
 
 
 # ---------- Kv/Cv Tool ----------
@@ -450,31 +421,28 @@ with tabs[1]:
 
     with left:
         st.subheader("Inputs")
-
-        sg = st.number_input("Specific Gravity (SG)", value=1.0, min_value=0.000001, step=0.01)
-        flow_unit = st.selectbox("Flow unit (input points)", FLOW_UNITS, index=4)  # L/min
-        dp_unit = st.selectbox("ΔP unit (input points)", DP_UNITS, index=1)        # kPa
+        sg = st.number_input("Specific Gravity (SG)", value=1.0, min_value=0.000001, step=0.01, key="kv_sg")
+        flow_unit = st.selectbox("Flow unit (input points)", FLOW_UNITS, index=4, key="kv_flow_unit")
+        dp_unit = st.selectbox("ΔP unit (input points)", DP_UNITS, index=1, key="kv_dp_unit")
 
         st.markdown("**Paste points (Q, ΔP) — one per line**")
         points_text = st.text_area(
             "Example format: `120, 35`",
             value="120, 35\n150, 45\n180, 62\n",
-            height=180
+            height=180,
+            key="kv_points"
         )
 
         colb1, colb2 = st.columns(2)
         with colb1:
-            btn_calc = st.button("Calculate / Fit", use_container_width=True)
+            btn_calc = st.button("Calculate / Fit", use_container_width=True, key="btn_calc")
         with colb2:
-            btn_plot = st.button("Plot PQ", use_container_width=True)
+            btn_plot = st.button("Plot PQ", use_container_width=True, key="btn_plot")
 
-    # session state storage
-    if "last_data" not in st.session_state:
-        st.session_state.last_data = None
-    if "last_fit" not in st.session_state:
-        st.session_state.last_fit = None
+    st.session_state.setdefault("last_data", None)
+    st.session_state.setdefault("last_fit", None)
+    st.session_state.setdefault("results_text", "")
 
-    # Calculate / Fit
     if btn_calc:
         try:
             pts = parse_points(points_text)
@@ -492,7 +460,7 @@ with tabs[1]:
             for i, ((q_in, dp_in), Qint, dpint, kv, cv) in enumerate(zip(pts, Q_m3h, dp_bar, kvs, cvs), 1):
                 lines.append(
                     f"  {i:>2}. Q={q_in:g} {flow_unit:<8} (= {Qint:.6g} m³/h)   "
-                    f"ΔP={dp_in:g} {dp_unit:<4} (= {dpint:.6g} bar)   "
+                    f"ΔP={dp_in:g} {dp_unit:<6} (= {dpint:.6g} bar)   "
                     f"Kv={kv:.4f}   Cv={cv:.4f}"
                 )
 
@@ -504,11 +472,11 @@ with tabs[1]:
                 last_fit = {"a": a, "n": n_exp, "K0": K0, "m": m_exp}
 
                 lines.append("\nFitted model (Q in m³/h, ΔP in bar):")
-                lines.append(f"  ΔP = a · Q^n")
+                lines.append("  ΔP = a · Q^n")
                 lines.append(f"  a = {a:.6g}")
                 lines.append(f"  n = {n_exp:.6g}")
                 lines.append("\nDerived functions:")
-                lines.append(f"  Kv(Q) = K0 · Q^m")
+                lines.append("  Kv(Q) = K0 · Q^m")
                 lines.append(f"  K0 = sqrt(SG/a) = {K0:.6g}")
                 lines.append(f"  m  = 1 - n/2    = {m_exp:.6g}")
                 lines.append("  Cv(Q) = Kv(Q) / 0.865")
@@ -521,7 +489,6 @@ with tabs[1]:
                 "dp_bar": dp_bar,
                 "flow_unit": flow_unit,
                 "dp_unit": dp_unit,
-                "sg": sg
             }
             st.session_state.last_fit = last_fit
             st.session_state.results_text = "\n".join(lines)
@@ -546,7 +513,6 @@ with tabs[1]:
                 data = st.session_state.last_data
                 fit = st.session_state.last_fit
 
-                # axis units for display = user-selected units
                 Q_axis = [m3h_to_flow(q, data["flow_unit"]) for q in data["Q_m3h"]]
                 dp_axis = [bar_to_dp(dpb, data["dp_unit"]) for dpb in data["dp_bar"]]
                 points = list(zip(Q_axis, dp_axis))
@@ -556,9 +522,7 @@ with tabs[1]:
                     a = fit["a"]
                     n = fit["n"]
                     qmin, qmax = min(data["Q_m3h"]), max(data["Q_m3h"])
-                    if qmin <= 0 or qmax <= 0 or qmin == qmax:
-                        curve = None
-                    else:
+                    if qmin > 0 and qmax > 0 and qmin != qmax:
                         steps = 180
                         lmin = math.log10(qmin)
                         lmax = math.log10(qmax)
