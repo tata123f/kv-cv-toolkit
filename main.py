@@ -6,7 +6,7 @@
 # - Kv/Cv from points (>=1 point)
 # - Fit ΔP = a·Q^n (>=2 points)
 # - PQ plot (Measured + Fit) using pure SVG (NO matplotlib, NO plotly)  [ALONE]
-# - Pump curve vs System curve intersection (separate plot) + Clear buttons
+# - Pump curve vs System curve (separate plot) + Intersection optional + Clear buttons
 
 import math
 import streamlit as st
@@ -148,7 +148,7 @@ def fit_power_law(Qs_m3h, dPs_bar):
 
 
 # ================================
-# Pump vs System intersection
+# Pump/System intersection helpers
 # ================================
 def pump_dp_piecewise_linear(Q, pump_Qs, pump_dps):
     if len(pump_Qs) < 2:
@@ -279,11 +279,12 @@ def fmt_tick(x):
 def svg_plot(points, curve=None, width=980, height=520,
              title="Plot", xlabel="X", ylabel="Y",
              extra_curves=None, markers=None):
-    if not points and not (extra_curves and any(ec.get("pts") for ec in extra_curves)):
-        return "<div>No data</div>"
-
     extra_curves = extra_curves or []
     markers = markers or []
+
+    has_any = bool(points) or bool(curve) or any(ec.get("pts") for ec in extra_curves) or bool(markers)
+    if not has_any:
+        return "<div>No data</div>"
 
     xs, ys = [], []
     if points:
@@ -360,7 +361,6 @@ def svg_plot(points, curve=None, width=980, height=520,
         f'transform="rotate(-90 24 {(py0+py1)/2})">{ylabel}</text>'
     )
 
-    # extra curves first
     for ec in extra_curves:
         pts = ec["pts"]
         if len(pts) >= 2:
@@ -369,24 +369,21 @@ def svg_plot(points, curve=None, width=980, height=520,
             w = ec.get("width", 3)
             svg.append(f'<polyline points="{poly}" fill="none" stroke="{stroke}" stroke-width="{w}"/>')
 
-    # fitted curve
     if curve and len(curve) >= 2:
         pts = " ".join([f"{xmap(x):.2f},{ymap(y):.2f}" for x, y in curve])
         svg.append(f'<polyline points="{pts}" fill="none" stroke="#2b6cb0" stroke-width="3"/>')
 
-    # points
     if points:
         for x, y in points:
             cx, cy = xmap(x), ymap(y)
             svg.append(f'<circle cx="{cx:.2f}" cy="{cy:.2f}" r="5.2" fill="#111"/>')
 
-    # markers
     for mk in markers:
         cx, cy = xmap(mk["x"]), ymap(mk["y"])
         color = mk.get("color", "#ff7a00")
         svg.append(f'<circle cx="{cx:.2f}" cy="{cy:.2f}" r="7.5" fill="{color}" stroke="#111" stroke-width="1.5"/>')
 
-    # simple legend (up to 6 lines)
+    # Legend
     lx, ly = px0 + 14, py0 + 18
     legend_items = []
     if points:
@@ -411,13 +408,24 @@ def svg_plot(points, curve=None, width=980, height=520,
     return "".join(svg)
 
 
+def fmt_num(x):
+    if x == 0:
+        return "0"
+    ax = abs(x)
+    if ax >= 1000:
+        return f"{x:.6g}"
+    if ax >= 1:
+        return f"{x:.6g}"
+    return f"{x:.6g}"
+
+
 # ================================
 # Streamlit UI
 # ================================
 st.set_page_config(page_title="Kv/Cv Toolkit", layout="wide")
 
 st.title("Kv / Cv Toolkit (Web)")
-st.caption("Converters • Pressure head • Kv/Cv • Fit • PQ plot (SVG) • Pump/System intersection (separate plot)")
+st.caption("Converters • Pressure head • Kv/Cv • Fit • Cv PQ plot (SVG) • Pump/System (separate plot)")
 
 tabs = st.tabs(["Converters", "Kv/Cv Tool"])
 
@@ -511,7 +519,6 @@ with tabs[0]:
                     result = pressure_to_head(head_val, head_unit, sg_val)
                 st.session_state.head_result = ("Head", result, "m")
             else:
-                # Interpret input as head in meters (simple & consistent).
                 head_m = float(head_val)
                 out_p = head_to_pressure(head_m, "kPa", sg_val)
                 st.session_state.head_result = ("Pressure", out_p, "kPa")
@@ -534,10 +541,9 @@ with tabs[1]:
     st.session_state.setdefault("last_data", None)
     st.session_state.setdefault("last_fit", None)
     st.session_state.setdefault("results_text", "")
-    st.session_state.setdefault("cv_svg", None)          # <-- Cv plot stored
-    st.session_state.setdefault("ps_svg", None)          # <-- Pump/System plot stored
-    st.session_state.setdefault("pump_system_data", None)
-    st.session_state.setdefault("pump_system_text", "")
+    st.session_state.setdefault("cv_svg", None)          # Cv plot stored
+    st.session_state.setdefault("ps_svg", None)          # Pump/System plot stored
+    st.session_state.setdefault("pump_system_text", "")  # equation + intersection info
 
     left, right = st.columns([1.1, 1.2])
 
@@ -556,7 +562,6 @@ with tabs[1]:
             key="kv_points_text"
         )
 
-        # ---- Buttons for Cv area ----
         b1, b2, b3 = st.columns(3)
         with b1:
             btn_calc = st.button("Calculate / Fit", use_container_width=True, key="btn_calc")
@@ -565,12 +570,9 @@ with tabs[1]:
         with b3:
             btn_clear_cv = st.button("Clear Cv Plot", use_container_width=True, key="btn_clear_cv")
 
-        # ---- Pump/System section ----
         st.divider()
         st.subheader("Pump vs System Curve (Separate Diagram)")
-
-        enable_intersection = st.checkbox("Enable pump/system curve", value=False, key="enable_intersection")
-        st.caption("Pump points use SAME units as above. System curve: ΔP_sys = ΔP0 + k·Q².")
+        st.caption("Pump points use SAME units as above. System curve: ΔP_sys = ΔP0 + k·Q²")
 
         pump_text = st.text_area(
             "Pump curve points (Q, ΔP) — one per line",
@@ -600,9 +602,8 @@ with tabs[1]:
     if btn_clear_ps:
         st.session_state.ps_svg = None
         st.session_state.pump_system_text = ""
-        st.session_state.pump_system_data = None
 
-    # ---- Calculate/Fit ----
+    # ---- Calculate/Fit (Cv tab) ----
     if btn_calc:
         try:
             pts = parse_points(points_text)
@@ -657,53 +658,6 @@ with tabs[1]:
         except Exception as e:
             st.error(str(e))
 
-    # ---- Compute intersection ----
-    if enable_intersection and btn_intersect:
-        try:
-            pump_pts = parse_points(pump_text)
-            pump_Q_m3h = [flow_to_m3h(q, flow_unit) for q, _ in pump_pts]
-            pump_dp_bar = [dp_to_bar(dp, dp_unit) for _, dp in pump_pts]
-
-            dp0_bar = dp_to_bar(sys_dp0, dp_unit)
-
-            # sys_k is entered as (dp_unit)/(flow_unit^2) -> convert to bar/(m3/h)^2
-            q_test_in = 1.0
-            q_test_m3h = flow_to_m3h(q_test_in, flow_unit)
-            k_bar_per_m3h2 = dp_to_bar(sys_k, dp_unit) / (q_test_m3h ** 2)
-
-            inter = find_intersection_pump_vs_system(pump_Q_m3h, pump_dp_bar, dp0_bar, k_bar_per_m3h2)
-
-            if inter is None:
-                st.session_state.pump_system_data = {
-                    "pump_Q_m3h": pump_Q_m3h,
-                    "pump_dp_bar": pump_dp_bar,
-                    "dp0_bar": dp0_bar,
-                    "k_bar_per_m3h2": k_bar_per_m3h2,
-                    "intersection": None,
-                    "flow_unit": flow_unit,
-                    "dp_unit": dp_unit
-                }
-                st.session_state.pump_system_text = "No intersection found within pump curve Q range."
-            else:
-                q_star_m3h, dp_star_bar = inter
-                q_star_disp = m3h_to_flow(q_star_m3h, flow_unit)
-                dp_star_disp = bar_to_dp(dp_star_bar, dp_unit)
-                st.session_state.pump_system_data = {
-                    "pump_Q_m3h": pump_Q_m3h,
-                    "pump_dp_bar": pump_dp_bar,
-                    "dp0_bar": dp0_bar,
-                    "k_bar_per_m3h2": k_bar_per_m3h2,
-                    "intersection": (q_star_m3h, dp_star_bar),
-                    "flow_unit": flow_unit,
-                    "dp_unit": dp_unit
-                }
-                st.session_state.pump_system_text = (
-                    f"Intersection: Q = {q_star_disp:.6g} {flow_unit},  ΔP = {dp_star_disp:.6g} {dp_unit}"
-                )
-        except Exception as e:
-            st.session_state.pump_system_data = None
-            st.session_state.pump_system_text = f"Error: {e}"
-
     # ---- Plot Cv (ALONE) ----
     if btn_plot_cv:
         try:
@@ -741,50 +695,106 @@ with tabs[1]:
         except Exception as e:
             st.error(str(e))
 
-    # ---- Plot Pump/System (separate) ----
-    if enable_intersection and btn_plot_ps:
+    # ---- Compute intersection (text only, independent) ----
+    if btn_intersect:
         try:
-            ps = st.session_state.get("pump_system_data", None)
-            if not ps:
-                raise ValueError("No pump/system data. Click Compute Intersection first.")
+            pump_pts = parse_points(pump_text)
+            pump_Q_m3h = [flow_to_m3h(q, flow_unit) for q, _ in pump_pts]
+            pump_dp_bar = [dp_to_bar(dp, dp_unit) for _, dp in pump_pts]
 
-            # Build pump curve in display units
-            pump_Q_axis = [m3h_to_flow(q, ps["flow_unit"]) for q in ps["pump_Q_m3h"]]
-            pump_dp_axis = [bar_to_dp(dpb, ps["dp_unit"]) for dpb in ps["pump_dp_bar"]]
+            dp0_bar = dp_to_bar(sys_dp0, dp_unit)
+
+            # sys_k entered as (dp_unit)/(flow_unit^2) -> convert to bar/(m3/h)^2
+            q_test_in = 1.0
+            q_test_m3h = flow_to_m3h(q_test_in, flow_unit)
+            k_bar_per_m3h2 = dp_to_bar(sys_k, dp_unit) / (q_test_m3h ** 2)
+
+            inter = find_intersection_pump_vs_system(pump_Q_m3h, pump_dp_bar, dp0_bar, k_bar_per_m3h2)
+
+            eq = f"ΔP_sys = {fmt_num(sys_dp0)} {dp_unit} + ({fmt_num(sys_k)}) {dp_unit}/({flow_unit})² · Q²"
+            if inter is None:
+                st.session_state.pump_system_text = f"System curve: {eq}\nIntersection: (none found in pump Q range)"
+            else:
+                q_star_m3h, dp_star_bar = inter
+                q_star_disp = m3h_to_flow(q_star_m3h, flow_unit)
+                dp_star_disp = bar_to_dp(dp_star_bar, dp_unit)
+                st.session_state.pump_system_text = (
+                    f"System curve: {eq}\n"
+                    f"Intersection: Q = {q_star_disp:.6g} {flow_unit},  ΔP = {dp_star_disp:.6g} {dp_unit}"
+                )
+        except Exception as e:
+            st.session_state.pump_system_text = f"Error: {e}"
+
+    # ---- Plot Pump/System (NO NEED to compute intersection first) ----
+    if btn_plot_ps:
+        try:
+            pump_pts = parse_points(pump_text)
+            if len(pump_pts) < 2:
+                raise ValueError("Pump curve needs at least 2 points to plot.")
+
+            pump_Q_m3h = [flow_to_m3h(q, flow_unit) for q, _ in pump_pts]
+            pump_dp_bar = [dp_to_bar(dp, dp_unit) for _, dp in pump_pts]
+
+            # sort pump points by Q
+            pairs = sorted(zip(pump_Q_m3h, pump_dp_bar), key=lambda x: x[0])
+            pump_Q_m3h = [p[0] for p in pairs]
+            pump_dp_bar = [p[1] for p in pairs]
+
+            # system params in internal units
+            dp0_bar = dp_to_bar(sys_dp0, dp_unit)
+
+            q_test_in = 1.0
+            q_test_m3h = flow_to_m3h(q_test_in, flow_unit)
+            k_bar_per_m3h2 = dp_to_bar(sys_k, dp_unit) / (q_test_m3h ** 2)
+
+            # equation in display units (what user typed)
+            eq = f"ΔP_sys = {fmt_num(sys_dp0)} {dp_unit} + ({fmt_num(sys_k)}) {dp_unit}/({flow_unit})² · Q²"
+            st.session_state.pump_system_text = f"System curve: {eq}"
+
+            # pump curve in display units
+            pump_Q_axis = [m3h_to_flow(q, flow_unit) for q in pump_Q_m3h]
+            pump_dp_axis = [bar_to_dp(dpb, dp_unit) for dpb in pump_dp_bar]
             pump_curve = list(zip(pump_Q_axis, pump_dp_axis))
 
-            # System curve sampling in display units
-            qmin_p = min(ps["pump_Q_m3h"])
-            qmax_p = max(ps["pump_Q_m3h"])
-            qs_m3h = make_curve_samples(qmin_p, qmax_p, steps=220)
-            sys_dp_bar = [system_dp(q, ps["dp0_bar"], ps["k_bar_per_m3h2"]) for q in qs_m3h]
-            sys_Q_axis = [m3h_to_flow(q, ps["flow_unit"]) for q in qs_m3h]
-            sys_dp_axis = [bar_to_dp(dpb, ps["dp_unit"]) for dpb in sys_dp_bar]
+            # system curve sampled across pump Q range
+            qmin_p, qmax_p = min(pump_Q_m3h), max(pump_Q_m3h)
+            qs_m3h = make_curve_samples(qmin_p if qmin_p > 0 else 0.0, qmax_p, steps=240)
+            sys_dp_bar = [system_dp(q, dp0_bar, k_bar_per_m3h2) for q in qs_m3h]
+            sys_Q_axis = [m3h_to_flow(q, flow_unit) for q in qs_m3h]
+            sys_dp_axis = [bar_to_dp(dpb, dp_unit) for dpb in sys_dp_bar]
             sys_curve = list(zip(sys_Q_axis, sys_dp_axis))
 
+            # intersection (auto compute for marker; if none, no marker)
+            inter = find_intersection_pump_vs_system(pump_Q_m3h, pump_dp_bar, dp0_bar, k_bar_per_m3h2)
             markers = []
-            if ps["intersection"] is not None:
-                q_star_m3h, dp_star_bar = ps["intersection"]
-                mkx = m3h_to_flow(q_star_m3h, ps["flow_unit"])
-                mky = bar_to_dp(dp_star_bar, ps["dp_unit"])
+            if inter is not None:
+                q_star_m3h, dp_star_bar = inter
+                mkx = m3h_to_flow(q_star_m3h, flow_unit)
+                mky = bar_to_dp(dp_star_bar, dp_unit)
                 markers.append({"name": "Operating point", "x": mkx, "y": mky, "color": "#ff7a00"})
+                st.session_state.pump_system_text += (
+                    f"\nIntersection: Q = {mkx:.6g} {flow_unit},  ΔP = {mky:.6g} {dp_unit}"
+                )
+            else:
+                st.session_state.pump_system_text += "\nIntersection: (none found in pump Q range)"
 
             st.session_state.ps_svg = svg_plot(
-                points=[],  # no measured points here (separate diagram)
+                points=[],
                 curve=None,
                 title="Pump PQ vs System Curve",
-                xlabel=f"Flow [{ps['flow_unit']}]",
-                ylabel=f"ΔP [{ps['dp_unit']}]",
+                xlabel=f"Flow [{flow_unit}]",
+                ylabel=f"ΔP [{dp_unit}]",
                 extra_curves=[
                     {"name": "Pump curve", "pts": pump_curve, "stroke": "#d64545", "width": 3},
                     {"name": "System curve", "pts": sys_curve, "stroke": "#2f855a", "width": 3},
                 ],
                 markers=markers
             )
+
         except Exception as e:
             st.error(str(e))
 
-    # ---- Right side: display results + plots ----
+    # ---- Right side output ----
     with right:
         st.subheader("Results")
         st.text_area(
@@ -797,16 +807,15 @@ with tabs[1]:
         if st.session_state.cv_svg:
             st.components.v1.html(st.session_state.cv_svg, height=560, scrolling=False)
         else:
-            st.info("No Cv plot yet. Click **Plot Cv PQ**. (Or **Clear Cv Plot** to hide it.)")
+            st.info("No Cv plot yet. Click **Plot Cv PQ**.")
 
         st.subheader("Pump/System Plot (Separate Diagram)")
-        if enable_intersection:
-            txt = st.session_state.get("pump_system_text", "")
-            if txt:
-                st.info(txt)
-            if st.session_state.ps_svg:
-                st.components.v1.html(st.session_state.ps_svg, height=560, scrolling=False)
-            else:
-                st.info("No pump/system plot yet. Click **Compute Intersection**, then **Plot Pump/System**.")
+        if st.session_state.pump_system_text:
+            st.info(st.session_state.pump_system_text)
         else:
-            st.info("Enable pump/system curve on the left to use this diagram.")
+            st.info("System curve equation will show here after you **Plot Pump/System** (or **Compute Intersection**).")
+
+        if st.session_state.ps_svg:
+            st.components.v1.html(st.session_state.ps_svg, height=560, scrolling=False)
+        else:
+            st.info("No pump/system plot yet. Click **Plot Pump/System** (no need to compute intersection first).")
