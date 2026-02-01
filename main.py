@@ -3,11 +3,12 @@
 # - Flow unit converter (persistent results)
 # - Pressure unit converter (Pa/kPa/bar/MPa/psi/inH2O/mmAq) (persistent results)
 # - Pressure Head calculator (same tab)
+# - NEW: Flow rate + Area -> Velocity calculator (same tab, persistent)
 # - Kv/Cv from points (>=1 point)
 # - Fit ΔP = a·Q^n (>=2 points)
 # - Cv PQ plot (Measured + Fit) using pure SVG (NO matplotlib, NO plotly)  [ALONE]
 # - Pump curve vs System curve (separate plot) + Intersection optional + Clear buttons
-# - NEW: choose plot mode (pump / system / op point / both) + legend placement
+# - Plot mode selection + legend placement
 
 import math
 import streamlit as st
@@ -18,6 +19,8 @@ import streamlit as st
 # ================================
 FLOW_UNITS = ["m3/h", "m3/s", "m3/min", "L/h", "L/min", "L/s", "gpm (US)", "gpm (Imp)", "cfm"]
 DP_UNITS = ["Pa", "kPa", "bar", "MPa", "psi", "inH2O", "mmAq"]
+
+AREA_UNITS = ["m2", "cm2", "mm2", "in2"]
 
 G0 = 9.80665  # m/s²
 
@@ -96,6 +99,14 @@ def head_to_pressure(head_m, unit, sg):
     rho = 1000.0 * sg
     pa = head_m * rho * G0
     return pa_to_dp(pa, unit)
+
+
+def area_to_m2(area, unit):
+    if unit == "m2": return area
+    if unit == "cm2": return area * 1e-4
+    if unit == "mm2": return area * 1e-6
+    if unit == "in2": return area * 0.00064516
+    raise ValueError(f"Unsupported area unit: {unit}")
 
 
 # ================================
@@ -280,10 +291,7 @@ def fmt_tick(x):
 
 
 def _choose_legend_pos(legend_loc, px0, py0, px1, py1):
-    # Returns (x, y, anchor) for the legend "start point"
-    # anchor: "start" means left aligned, "end" means right aligned
     pad = 14
-
     if legend_loc == "Top-left":
         return px0 + pad, py0 + pad, "start"
     if legend_loc == "Top-right":
@@ -294,9 +302,7 @@ def _choose_legend_pos(legend_loc, px0, py0, px1, py1):
         return px1 - pad, py1 - 60, "end"
     if legend_loc == "Outside-right":
         return px1 + 18, py0 + pad, "start"
-
-    # Auto: default top-right (least likely to block in many PQ cases)
-    return px1 - pad, py0 + pad, "end"
+    return px1 - pad, py0 + pad, "end"  # Auto
 
 
 def svg_plot(
@@ -305,9 +311,9 @@ def svg_plot(
     curves=None, points=None, markers=None,
     legend_loc="Auto"
 ):
-    curves = curves or []   # each: {"name","pts","stroke","width"}
-    points = points or []   # list[(x,y)] black dots
-    markers = markers or [] # each: {"name","x","y","color"}
+    curves = curves or []
+    points = points or []
+    markers = markers or []
 
     has_any = bool(points) or bool(markers) or any(c.get("pts") for c in curves)
     if not has_any:
@@ -379,7 +385,6 @@ def svg_plot(
         f'transform="rotate(-90 24 {(py0+py1)/2})">{ylabel}</text>'
     )
 
-    # Draw curves
     for c in curves:
         pts = c.get("pts") or []
         if len(pts) >= 2:
@@ -388,33 +393,28 @@ def svg_plot(
             w = c.get("width", 3)
             svg.append(f'<polyline points="{poly}" fill="none" stroke="{stroke}" stroke-width="{w}"/>')
 
-    # Draw points
     for x, y in points:
         cx, cy = xmap(x), ymap(y)
         svg.append(f'<circle cx="{cx:.2f}" cy="{cy:.2f}" r="5.2" fill="#111"/>')
 
-    # Draw markers
     for m in markers:
         cx, cy = xmap(m["x"]), ymap(m["y"])
         color = m.get("color", "#ff7a00")
         svg.append(f'<circle cx="{cx:.2f}" cy="{cy:.2f}" r="7.5" fill="{color}" stroke="#111" stroke-width="1.5"/>')
 
-    # Legend (position selectable)
     legend_items = []
     for c in curves:
         legend_items.append(("line", c.get("name", "Curve"), c.get("stroke", "#999999")))
     for m in markers:
         legend_items.append(("dot", m.get("name", "Marker"), m.get("color", "#ff7a00")))
-    for _ in points[:1]:
-        legend_items.append(("dot", "Measured points", "#111111"))  # (only if you use points)
+    if points:
+        legend_items.append(("dot", "Measured points", "#111111"))
 
     if legend_items:
         lx, ly, anchor = _choose_legend_pos(legend_loc, px0, py0, px1, py1)
 
-        # Legend background box (helps readability if over curves)
-        # Estimate height: 18px per item, width fixed
-        box_w = 190
-        box_h = 18 * len(legend_items) + 10
+        box_w = 210
+        box_h = 18 * min(len(legend_items), 8) + 10
         if legend_loc == "Outside-right":
             bx = lx - 6
         else:
@@ -458,7 +458,7 @@ def fmt_num(x):
 st.set_page_config(page_title="Kv/Cv Toolkit", layout="wide")
 
 st.title("Kv / Cv Toolkit (Web)")
-st.caption("Converters • Pressure head • Kv/Cv • Fit • Cv PQ plot (SVG) • Pump/System (separate plot)")
+st.caption("Converters • Pressure head • Velocity calc • Kv/Cv • Fit • Cv plot • Pump/System plot")
 
 tabs = st.tabs(["Converters", "Kv/Cv Tool"])
 
@@ -468,6 +468,7 @@ with tabs[0]:
     st.session_state.setdefault("flow_conv_result", None)
     st.session_state.setdefault("press_conv_result", None)
     st.session_state.setdefault("head_result", None)
+    st.session_state.setdefault("vel_result", None)
 
     st.subheader("Flow unit converter")
     c1, c2, c3, c4 = st.columns([1.2, 1.2, 1.2, 1.2])
@@ -568,6 +569,52 @@ with tabs[0]:
             else:
                 st.success(f"Pressure = **{val:.6g} {u}**")
 
+    st.divider()
+
+    # NEW: Velocity calculator
+    st.subheader("Volume Flow Rate + Area → Flow Speed (Velocity)")
+
+    v1, v2, v3, v4 = st.columns([1.2, 1.2, 1.2, 1.2])
+    with v1:
+        q_val = st.number_input("Flow rate value", value=100.0, key="vel_q_val")
+    with v2:
+        q_unit = st.selectbox("Flow rate unit", FLOW_UNITS, index=4, key="vel_q_unit")  # L/min
+    with v3:
+        area_val = st.number_input("Area value", value=100.0, min_value=0.0, key="vel_area_val")
+    with v4:
+        area_unit = st.selectbox("Area unit", AREA_UNITS, index=2, key="vel_area_unit")  # mm2
+
+    vb1, vb2 = st.columns([1.2, 1.2])
+    with vb1:
+        btn_vel = st.button("Calculate Velocity", use_container_width=True, key="btn_vel")
+    with vb2:
+        btn_vel_clear = st.button("Clear Velocity Result", use_container_width=True, key="btn_vel_clear")
+
+    if btn_vel_clear:
+        st.session_state.vel_result = None
+
+    if btn_vel:
+        try:
+            if area_val <= 0:
+                raise ValueError("Area must be > 0.")
+            Q_m3s = flow_to_m3s(q_val, q_unit)
+            A_m2 = area_to_m2(area_val, area_unit)
+            v_ms = Q_m3s / A_m2
+            v_fts = v_ms * 3.280839895
+            st.session_state.vel_result = (q_val, q_unit, area_val, area_unit, v_ms, v_fts)
+        except Exception as e:
+            st.session_state.vel_result = ("__ERROR__", str(e))
+
+    if st.session_state.vel_result is not None:
+        if st.session_state.vel_result[0] == "__ERROR__":
+            st.error(st.session_state.vel_result[1])
+        else:
+            qv, qu, av, au, v_ms, v_fts = st.session_state.vel_result
+            st.success(
+                f"Q = {qv:g} {qu},  A = {av:g} {au}  →  "
+                f"**v = {v_ms:.6g} m/s**  (={v_fts:.6g} ft/s)"
+            )
+
 
 # ---------- Kv/Cv Tool ----------
 with tabs[1]:
@@ -620,7 +667,6 @@ with tabs[1]:
         with c_int2:
             sys_k = st.number_input("System k (ΔP / Q²)", value=0.001, format="%.8f", key="sys_k")
 
-        # NEW: plot mode & legend location
         st.markdown("**Plot options**")
         plot_mode = st.selectbox(
             "What to plot",
@@ -657,7 +703,6 @@ with tabs[1]:
         st.session_state.ps_svg = None
         st.session_state.pump_system_text = ""
 
-    # ---- Calculate / Fit ----
     if btn_calc:
         try:
             pts = parse_points(points_text)
@@ -682,9 +727,7 @@ with tabs[1]:
             last_fit = None
             if len(pts) >= 2:
                 a, n_exp = fit_power_law(Q_m3h, dp_bar)
-                K0 = math.sqrt(sg / a)
-                m_exp = 1 - n_exp / 2
-                last_fit = {"a": a, "n": n_exp, "K0": K0, "m": m_exp}
+                last_fit = {"a": a, "n": n_exp}
 
                 lines.append("\nFitted model (Q in m³/h, ΔP in bar):")
                 lines.append(f"  ΔP = a · Q^n")
@@ -705,12 +748,10 @@ with tabs[1]:
         except Exception as e:
             st.error(str(e))
 
-    # ---- Cv plot (alone) ----
     if btn_plot_cv:
         try:
             if not st.session_state.last_data:
                 raise ValueError("No data. Click Calculate / Fit first.")
-
             data = st.session_state.last_data
             fit = st.session_state.last_fit
 
@@ -742,7 +783,6 @@ with tabs[1]:
         except Exception as e:
             st.error(str(e))
 
-    # ---- Compute Intersection (text only) ----
     if btn_intersect:
         try:
             pump_pts = parse_points(pump_text)
@@ -750,7 +790,6 @@ with tabs[1]:
             pump_dp_bar = [dp_to_bar(dp, dp_unit) for _, dp in pump_pts]
 
             dp0_bar = dp_to_bar(sys_dp0, dp_unit)
-
             q_test_m3h = flow_to_m3h(1.0, flow_unit)
             k_bar_per_m3h2 = dp_to_bar(sys_k, dp_unit) / (q_test_m3h ** 2)
 
@@ -770,18 +809,15 @@ with tabs[1]:
         except Exception as e:
             st.session_state.pump_system_text = f"Error: {e}"
 
-    # ---- Plot Pump/System (independent) ----
     if btn_plot_ps:
         try:
             pump_pts = parse_points(pump_text)
             if len(pump_pts) < 2 and plot_mode != "System curve only":
                 raise ValueError("Pump curve needs at least 2 points (unless plotting System curve only).")
 
-            # System equation text (display units)
             eq = f"ΔP_sys = {fmt_num(sys_dp0)} {dp_unit} + ({fmt_num(sys_k)}) {dp_unit}/({flow_unit})² · Q²"
             st.session_state.pump_system_text = f"System curve: {eq}"
 
-            # system internal params
             dp0_bar = dp_to_bar(sys_dp0, dp_unit)
             q_test_m3h = flow_to_m3h(1.0, flow_unit)
             k_bar_per_m3h2 = dp_to_bar(sys_k, dp_unit) / (q_test_m3h ** 2)
@@ -799,20 +835,16 @@ with tabs[1]:
                 pump_Q_m3h = [p[0] for p in pairs]
                 pump_dp_bar = [p[1] for p in pairs]
 
-            # Build pump curve (display units)
             if plot_mode in ["Pump curve only", "Pump + System", "Pump + System + Operating point"]:
                 pump_Q_axis = [m3h_to_flow(q, flow_unit) for q in pump_Q_m3h]
                 pump_dp_axis = [bar_to_dp(dpb, dp_unit) for dpb in pump_dp_bar]
                 curves.append({"name": "Pump curve", "pts": list(zip(pump_Q_axis, pump_dp_axis)), "stroke": "#d64545", "width": 3})
 
-            # Build system curve (display units)
-            # If pump exists, sample over pump Q range; else choose a default range from user pump input or a simple span
             if plot_mode in ["System curve only", "Pump + System", "Pump + System + Operating point"]:
                 if len(pump_Q_m3h) >= 2:
                     qmin_p, qmax_p = min(pump_Q_m3h), max(pump_Q_m3h)
                     qs_m3h = make_curve_samples(max(qmin_p, 1e-9), qmax_p, steps=240) if qmax_p > 0 else [0.0]
                 else:
-                    # fallback: 0..100 in display unit converted to m3/h
                     qmax_guess = flow_to_m3h(100.0, flow_unit)
                     qs_m3h = make_curve_samples(1e-9, max(qmax_guess, 1e-6), steps=240)
 
@@ -821,7 +853,6 @@ with tabs[1]:
                 sys_dp_axis = [bar_to_dp(dpb, dp_unit) for dpb in sys_dp_bar]
                 curves.append({"name": "System curve", "pts": list(zip(sys_Q_axis, sys_dp_axis)), "stroke": "#2f855a", "width": 3})
 
-            # Operating point marker (intersection) — only if requested
             if plot_mode in ["Operating point only", "Pump + System + Operating point"]:
                 if len(pump_Q_m3h) < 2:
                     raise ValueError("Need pump curve points to compute operating point.")
@@ -835,7 +866,6 @@ with tabs[1]:
                     markers.append({"name": "Operating point", "x": mkx, "y": mky, "color": "#ff7a00"})
                     st.session_state.pump_system_text += f"\nIntersection: Q = {mkx:.6g} {flow_unit},  ΔP = {mky:.6g} {dp_unit}"
 
-            # If user chose Operating point only, plot only the marker (no curves)
             if plot_mode == "Operating point only":
                 curves = []
 
@@ -852,7 +882,6 @@ with tabs[1]:
         except Exception as e:
             st.error(str(e))
 
-    # ---- Right side output ----
     with right:
         st.subheader("Results")
         st.text_area(
