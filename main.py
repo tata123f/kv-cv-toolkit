@@ -599,18 +599,26 @@ with v3:
 with v4:
     area_unit = st.selectbox("Area unit", AREA_UNITS, index=2, key="vel_area_unit")  # mm2
 
-vb1, vb2, vb3 = st.columns([1.2, 1.2, 1.2])
-with vb1:
-    btn_vel = st.button("Calculate Velocity", use_container_width=True, key="btn_vel")
-with vb2:
-    btn_vel_clear = st.button("Clear Velocity Result", use_container_width=True, key="btn_vel_clear")
-with vb3:
+# --- Action buttons ---
+b1, b2 = st.columns([1, 1])
+
+with b1:
+    btn_vel = st.button("Calculate Velocity", use_container_width=True)
+
+with b2:
+    btn_vel_clear = st.button("Clear Result", use_container_width=True)
+
+# --- Result + unit selector (same row) ---
+r1, r2 = st.columns([3, 1])
+
+with r2:
     vel_out_unit = st.selectbox(
-        "Output velocity unit",
+        "Output unit",
         VEL_UNITS,
-        index=VEL_UNITS.index(st.session_state.vel_out_unit) if st.session_state.vel_out_unit in VEL_UNITS else 0,
+        index=VEL_UNITS.index(st.session_state.vel_out_unit),
         key="vel_out_unit_select"
     )
+    st.session_state.vel_out_unit = vel_out_unit
 
 # keep selection in session
 st.session_state.vel_out_unit = vel_out_unit
