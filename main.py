@@ -108,6 +108,16 @@ def area_to_m2(area, unit):
     if unit == "in2": return area * 0.00064516
     raise ValueError(f"Unsupported area unit: {unit}")
 
+VEL_UNITS = ["m/s", "m/min", "m/h", "ft/s", "ft/min"]
+
+def ms_to_vel(v_ms, unit):
+    if unit == "m/s":   return v_ms
+    if unit == "m/min": return v_ms * 60.0
+    if unit == "m/h":   return v_ms * 3600.0
+    if unit == "ft/s":  return v_ms * 3.280839895
+    if unit == "ft/min":return v_ms * 3.280839895 * 60.0
+    raise ValueError(f"Unsupported velocity unit: {unit}")
+
 
 # ================================
 # Kv/Cv + fitting
@@ -528,7 +538,7 @@ with tabs[0]:
 
     st.divider()
 
-    st.subheader("Pressure Head Calculator (same tab)")
+    st.subheader("Pressure Head Calculator")
     hc1, hc2, hc3 = st.columns([1.3, 1.3, 1.1])
     with hc1:
         head_val = st.number_input("Input Value", value=10.0, key="head_val")
@@ -574,47 +584,70 @@ with tabs[0]:
     # NEW: Velocity calculator
     st.subheader("Volume Flow Rate + Area → Flow Speed (Velocity)")
 
-    v1, v2, v3, v4 = st.columns([1.2, 1.2, 1.2, 1.2])
-    with v1:
-        q_val = st.number_input("Flow rate value", value=100.0, key="vel_q_val")
-    with v2:
-        q_unit = st.selectbox("Flow rate unit", FLOW_UNITS, index=4, key="vel_q_unit")  # L/min
-    with v3:
-        area_val = st.number_input("Area value", value=100.0, min_value=0.0, key="vel_area_val")
-    with v4:
-        area_unit = st.selectbox("Area unit", AREA_UNITS, index=2, key="vel_area_unit")  # mm2
+# Persistent storage
+st.session_state.setdefault("vel_result_ms", None)      # store only v in m/s
+st.session_state.setdefault("vel_inputs", None)         # store inputs for display
+st.session_state.setdefault("vel_out_unit", "m/s")      # output unit selection
 
-    vb1, vb2 = st.columns([1.2, 1.2])
-    with vb1:
-        btn_vel = st.button("Calculate Velocity", use_container_width=True, key="btn_vel")
-    with vb2:
-        btn_vel_clear = st.button("Clear Velocity Result", use_container_width=True, key="btn_vel_clear")
+v1, v2, v3, v4 = st.columns([1.2, 1.2, 1.2, 1.2])
+with v1:
+    q_val = st.number_input("Flow rate value", value=100.0, key="vel_q_val")
+with v2:
+    q_unit = st.selectbox("Flow rate unit", FLOW_UNITS, index=4, key="vel_q_unit")  # L/min
+with v3:
+    area_val = st.number_input("Area value", value=100.0, min_value=0.0, key="vel_area_val")
+with v4:
+    area_unit = st.selectbox("Area unit", AREA_UNITS, index=2, key="vel_area_unit")  # mm2
 
-    if btn_vel_clear:
-        st.session_state.vel_result = None
+vb1, vb2, vb3 = st.columns([1.2, 1.2, 1.2])
+with vb1:
+    btn_vel = st.button("Calculate Velocity", use_container_width=True, key="btn_vel")
+with vb2:
+    btn_vel_clear = st.button("Clear Velocity Result", use_container_width=True, key="btn_vel_clear")
+with vb3:
+    vel_out_unit = st.selectbox(
+        "Output velocity unit",
+        VEL_UNITS,
+        index=VEL_UNITS.index(st.session_state.vel_out_unit) if st.session_state.vel_out_unit in VEL_UNITS else 0,
+        key="vel_out_unit_select"
+    )
 
-    if btn_vel:
-        try:
-            if area_val <= 0:
-                raise ValueError("Area must be > 0.")
-            Q_m3s = flow_to_m3s(q_val, q_unit)
-            A_m2 = area_to_m2(area_val, area_unit)
-            v_ms = Q_m3s / A_m2
-            v_fts = v_ms * 3.280839895
-            st.session_state.vel_result = (q_val, q_unit, area_val, area_unit, v_ms, v_fts)
-        except Exception as e:
-            st.session_state.vel_result = ("__ERROR__", str(e))
+# keep selection in session
+st.session_state.vel_out_unit = vel_out_unit
 
-    if st.session_state.vel_result is not None:
-        if st.session_state.vel_result[0] == "__ERROR__":
-            st.error(st.session_state.vel_result[1])
-        else:
-            qv, qu, av, au, v_ms, v_fts = st.session_state.vel_result
-            st.success(
-                f"Q = {qv:g} {qu},  A = {av:g} {au}  →  "
-                f"**v = {v_ms:.6g} m/s**  (={v_fts:.6g} ft/s)"
-            )
+if btn_vel_clear:
+    st.session_state.vel_result_ms = None
+    st.session_state.vel_inputs = None
 
+if btn_vel:
+    try:
+        if area_val <= 0:
+            raise ValueError("Area must be > 0.")
+        Q_m3s = flow_to_m3s(q_val, q_unit)
+        A_m2 = area_to_m2(area_val, area_unit)
+        v_ms = Q_m3s / A_m2
+
+        st.session_state.vel_result_ms = v_ms
+        st.session_state.vel_inputs = (q_val, q_unit, area_val, area_unit)
+    except Exception as e:
+        st.session_state.vel_result_ms = "__ERROR__"
+        st.session_state.vel_inputs = str(e)
+
+# Display (updates when output unit changes)
+if st.session_state.vel_result_ms is not None:
+    if st.session_state.vel_result_ms == "__ERROR__":
+        st.error(st.session_state.vel_inputs)
+    else:
+        v_ms = st.session_state.vel_result_ms
+        qv, qu, av, au = st.session_state.vel_inputs
+
+        v_out = ms_to_vel(v_ms, st.session_state.vel_out_unit)
+
+        st.success(
+            f"Q = {qv:g} {qu},  A = {av:g} {au}  →  "
+            f"**v = {v_out:.6g} {st.session_state.vel_out_unit}** "
+            f"(= {v_ms:.6g} m/s stored)"
+        )
 
 # ---------- Kv/Cv Tool ----------
 with tabs[1]:
