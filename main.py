@@ -16,6 +16,18 @@ import streamlit as st
 FLOW_UNITS = ["m3/h", "m3/s", "m3/min", "L/h", "L/min", "L/s", "gpm (US)", "gpm (Imp)", "cfm"]
 DP_UNITS = ["Pa", "kPa", "bar", "MPa", "psi", "inH2O", "mmAq"]
 
+G0 = 9.80665  # m/s²
+
+def pressure_to_head(dp_value, unit, sg):
+    rho = 1000.0 * sg
+    pa = dp_to_pa(dp_value, unit)
+    return pa / (rho * G0)
+
+def head_to_pressure(head_m, unit, sg):
+    rho = 1000.0 * sg
+    pa = head_m * rho * G0
+    return pa_to_dp(pa, unit)
+
 
 def flow_to_m3s(flow, unit):
     if unit == "m3/s": return flow
@@ -389,6 +401,47 @@ with tabs[0]:
         else:
             v_in, u_in, v_out, u_out = st.session_state.press_conv_result
             st.success(f"{v_in:g} {u_in}  →  **{v_out:.6g} {u_out}**")
+
+st.subheader("Pressure Head Calculator")
+
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    head_val = st.number_input("Pressure / Head Value", value=10.0)
+
+with col2:
+    head_unit = st.selectbox(
+        "Input Unit",
+        ["Pa", "kPa", "bar", "MPa", "psi", "inH2O", "mmAq", "m"]
+    )
+
+with col3:
+    sg_val = st.number_input("Specific Gravity", value=1.0, step=0.01)
+
+convert_type = st.radio(
+    "Conversion Type",
+    ["Pressure → Head (m)", "Head (m) → Pressure"],
+    horizontal=True
+)
+
+if st.button("Calculate Head / Pressure"):
+    try:
+        if convert_type == "Pressure → Head (m)":
+            if head_unit == "m":
+                result = head_val
+            else:
+                result = pressure_to_head(head_val, head_unit, sg_val)
+            st.success(f"Head = {result:.4f} m")
+
+        else:
+            if head_unit == "m":
+                result = head_val
+            else:
+                result = head_to_pressure(head_val, head_unit, sg_val)
+            st.success(f"Pressure = {result:.6g} {head_unit}")
+
+    except Exception as e:
+        st.error(str(e))
 
 
 # ---------- Kv/Cv Tool ----------
