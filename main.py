@@ -27,32 +27,35 @@ def num_text_in(label, default_value, key, help=None, placeholder=None):
     """
     s_key = f"{key}_str"
     v_key = f"{key}_last_valid"
+    w_key = f"{key}_warn"
 
-    # default displayed text (2 decimals)
     st.session_state.setdefault(s_key, f"{default_value:.2f}")
     st.session_state.setdefault(v_key, float(default_value))
+    st.session_state.setdefault(w_key, "")
 
-    s = st.text_input(label, value=st.session_state[s_key], key=s_key, help=help, placeholder=placeholder).strip()
+    s = st.text_input(
+        label,
+        value=st.session_state[s_key],
+        key=s_key,
+        help=help,
+        placeholder=placeholder
+    ).strip()
 
-    # allow commas like "1,234.5"
     s_clean = s.replace(",", "")
 
-    # if user clears the input while typing, don't crash
     if s_clean == "":
-        st.caption("⚠️ Please enter a number.")
+        st.session_state[w_key] = "Please enter a number."
         return None
 
     try:
         val = float(s_clean)
-        # store text exactly as user typed + last valid numeric value
-        st.session_state[s_key] = s
+        st.session_state[s_key] = s          # keep exact user string
         st.session_state[v_key] = val
+        st.session_state[w_key] = ""         # clear warn if valid
         return val
     except Exception:
-        # do not raise; keep app alive
-        st.caption(f"⚠️ Invalid number: '{s}'")
+        st.session_state[w_key] = f"Invalid number: '{s}'"
         return None
-
 
 # ================================
 # Units
@@ -532,30 +535,40 @@ with tabs[0]:
     st.session_state.setdefault("press_conv_result", None)
     st.session_state.setdefault("head_result", None)
 
+    # ----------------------------
+    # Flow unit converter
+    # ----------------------------
     st.subheader("Flow unit converter")
     c1, c2, c3, c4 = st.columns([1.2, 1.2, 1.2, 1.2])
+
     with c1:
-        # ✅ precision-safe input (NEW)
         flow_val = num_text_in("Value", 100.0, "flow_val")
+        warn = st.session_state.get("flow_val_warn", "")
+        if warn:
+            st.caption(f"⚠️ {warn}")
+
     with c2:
         flow_from = st.selectbox("From unit", FLOW_UNITS, index=4, key="flow_from")
+
     with c3:
         flow_to = st.selectbox("To unit", FLOW_UNITS, index=0, key="flow_to")
+
     with c4:
         st.write("")
         st.write("")
         do_flow = st.button("Convert Flow", use_container_width=True, key="btn_flow")
-        
-if do_flow:
-    if flow_val is None:
-        st.session_state.flow_conv_result = ("__ERROR__", "Flow value is invalid. Please enter a valid number.")
-    else:
-        try:
-            out = m3s_to_flow(flow_to_m3s(flow_val, flow_from), flow_to)
-            st.session_state.flow_conv_result = (flow_val, flow_from, out, flow_to)
-        except Exception as e:
-            st.session_state.flow_conv_result = ("__ERROR__", str(e))
 
+    if do_flow:
+        if flow_val is None:
+            st.session_state.flow_conv_result = ("__ERROR__", "Flow value is invalid. Please enter a valid number.")
+        else:
+            try:
+                out = m3s_to_flow(flow_to_m3s(flow_val, flow_from), flow_to)
+                st.session_state.flow_conv_result = (flow_val, flow_from, out, flow_to)
+            except Exception as e:
+                st.session_state.flow_conv_result = ("__ERROR__", str(e))
+
+    # show last flow result
     if st.session_state.flow_conv_result is not None:
         if st.session_state.flow_conv_result[0] == "__ERROR__":
             st.error(st.session_state.flow_conv_result[1])
@@ -565,30 +578,40 @@ if do_flow:
 
     st.divider()
 
+    # ----------------------------
+    # Pressure unit converter
+    # ----------------------------
     st.subheader("Pressure unit converter")
     p1, p2, p3, p4 = st.columns([1.2, 1.2, 1.2, 1.2])
+
     with p1:
-        # ✅ precision-safe input (NEW)
-        p_val = num_text_in("Value ", 35.0, "p_val")
+        p_val = num_text_in("Value", 35.0, "p_val")
+        warn = st.session_state.get("p_val_warn", "")
+        if warn:
+            st.caption(f"⚠️ {warn}")
+
     with p2:
-        p_from = st.selectbox("From unit ", DP_UNITS, index=1, key="p_from")
+        p_from = st.selectbox("From unit", DP_UNITS, index=1, key="p_from")
+
     with p3:
-        p_to = st.selectbox("To unit ", DP_UNITS, index=2, key="p_to")
+        p_to = st.selectbox("To unit", DP_UNITS, index=2, key="p_to")
+
     with p4:
         st.write("")
         st.write("")
         do_p = st.button("Convert Pressure", use_container_width=True, key="btn_press")
 
-if do_p:
-    if p_val is None:
-        st.session_state.press_conv_result = ("__ERROR__", "Pressure value is invalid. Please enter a valid number.")
-    else:
-        try:
-            out = pa_to_dp(dp_to_pa(p_val, p_from), p_to)
-            st.session_state.press_conv_result = (p_val, p_from, out, p_to)
-        except Exception as e:
-            st.session_state.press_conv_result = ("__ERROR__", str(e))
+    if do_p:
+        if p_val is None:
+            st.session_state.press_conv_result = ("__ERROR__", "Pressure value is invalid. Please enter a valid number.")
+        else:
+            try:
+                out = pa_to_dp(dp_to_pa(p_val, p_from), p_to)
+                st.session_state.press_conv_result = (p_val, p_from, out, p_to)
+            except Exception as e:
+                st.session_state.press_conv_result = ("__ERROR__", str(e))
 
+    # show last pressure result
     if st.session_state.press_conv_result is not None:
         if st.session_state.press_conv_result[0] == "__ERROR__":
             st.error(st.session_state.press_conv_result[1])
@@ -598,6 +621,9 @@ if do_p:
 
     st.divider()
 
+    # ----------------------------
+    # Pressure head calculator (unchanged)
+    # ----------------------------
     st.subheader("Pressure Head Calculator")
     hc1, hc2, hc3 = st.columns([1.3, 1.3, 1.1])
     with hc1:
@@ -641,7 +667,9 @@ if do_p:
 
     st.divider()
 
-    # Velocity/Area calculator
+    # ----------------------------
+    # Flow / Velocity / Area Calculator (keep your original)
+    # ----------------------------
     st.subheader("Flow / Velocity / Area Calculator")
 
     st.session_state.setdefault("va_mode", "Flow rate + Area → Velocity")
@@ -668,7 +696,6 @@ if do_p:
             a_val = st.number_input("Area value", value=100.0, key="va_a_val")
         with r4:
             a_unit = st.selectbox("Area unit", AREA_UNITS, index=2, key="va_a_unit")
-
     else:
         r1, r2, r3, r4 = st.columns([1.2, 1.2, 1.2, 1.2])
         with r1:
@@ -676,9 +703,9 @@ if do_p:
         with r2:
             v_unit = st.selectbox("Velocity unit", VEL_UNITS, index=0, key="va_v_unit")
         with r3:
-            a_val = st.number_input("Area value ", value=100.0, key="va_a_val2")
+            a_val = st.number_input("Area value", value=100.0, key="va_a_val2")
         with r4:
-            a_unit = st.selectbox("Area unit ", AREA_UNITS, index=2, key="va_a_unit2")
+            a_unit = st.selectbox("Area unit", AREA_UNITS, index=2, key="va_a_unit2")
 
     b1, b2 = st.columns([1, 1])
     with b1:
