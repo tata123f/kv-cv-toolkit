@@ -17,29 +17,41 @@ import streamlit as st
 # ================================
 # Precision input helper (NEW)
 # ================================
-def num_text_in(label, default_value, key, help=None):
+def num_text_in(label, default_value, key, help=None, placeholder=None):
     """
-    Text-based numeric input:
-    - shows default with 2 decimals
+    Safe text-based numeric input:
+    - default display: 2 decimals
     - keeps user-entered decimals (e.g., 100.0003)
-    - returns float or raises ValueError
+    - DOES NOT crash app while typing
+    - returns float or None (if current text is invalid)
     """
     s_key = f"{key}_str"
-    st.session_state.setdefault(s_key, f"{default_value:.2f}")
+    v_key = f"{key}_last_valid"
 
-    s = st.text_input(label, value=st.session_state[s_key], key=s_key, help=help)
-    s = s.strip()
+    # default displayed text (2 decimals)
+    st.session_state.setdefault(s_key, f"{default_value:.2f}")
+    st.session_state.setdefault(v_key, float(default_value))
+
+    s = st.text_input(label, value=st.session_state[s_key], key=s_key, help=help, placeholder=placeholder).strip()
 
     # allow commas like "1,234.5"
     s_clean = s.replace(",", "")
 
+    # if user clears the input while typing, don't crash
+    if s_clean == "":
+        st.caption("⚠️ Please enter a number.")
+        return None
+
     try:
         val = float(s_clean)
-        # keep what user typed (no forced rounding)
+        # store text exactly as user typed + last valid numeric value
         st.session_state[s_key] = s
+        st.session_state[v_key] = val
         return val
     except Exception:
-        raise ValueError(f"Invalid number for '{label}': {s}")
+        # do not raise; keep app alive
+        st.caption(f"⚠️ Invalid number: '{s}'")
+        return None
 
 
 # ================================
@@ -533,8 +545,11 @@ with tabs[0]:
         st.write("")
         st.write("")
         do_flow = st.button("Convert Flow", use_container_width=True, key="btn_flow")
-
-    if do_flow:
+        
+if do_flow:
+    if flow_val is None:
+        st.session_state.flow_conv_result = ("__ERROR__", "Flow value is invalid. Please enter a valid number.")
+    else:
         try:
             out = m3s_to_flow(flow_to_m3s(flow_val, flow_from), flow_to)
             st.session_state.flow_conv_result = (flow_val, flow_from, out, flow_to)
@@ -564,7 +579,10 @@ with tabs[0]:
         st.write("")
         do_p = st.button("Convert Pressure", use_container_width=True, key="btn_press")
 
-    if do_p:
+if do_p:
+    if p_val is None:
+        st.session_state.press_conv_result = ("__ERROR__", "Pressure value is invalid. Please enter a valid number.")
+    else:
         try:
             out = pa_to_dp(dp_to_pa(p_val, p_from), p_to)
             st.session_state.press_conv_result = (p_val, p_from, out, p_to)
