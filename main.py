@@ -1,7 +1,7 @@
 # main.py
 # Streamlit Web App (Public URL friendly)
-# - Flow unit converter (persistent results)
-# - Pressure unit converter (Pa/kPa/bar/MPa/psi/inH2O/mmAq) (persistent results)
+# - Flow unit converter (persistent results) [precision input fix]
+# - Pressure unit converter (Pa/kPa/bar/MPa/psi/inH2O/mmAq) (persistent results) [precision input fix]
 # - Pressure Head calculator (same tab)
 # - Flow/Velocity/Area calculator (same tab, persistent, bi-directional)
 # - Kv/Cv from points (>=1 point)
@@ -15,6 +15,34 @@ import streamlit as st
 
 
 # ================================
+# Precision input helper (NEW)
+# ================================
+def num_text_in(label, default_value, key, help=None):
+    """
+    Text-based numeric input:
+    - shows default with 2 decimals
+    - keeps user-entered decimals (e.g., 100.0003)
+    - returns float or raises ValueError
+    """
+    s_key = f"{key}_str"
+    st.session_state.setdefault(s_key, f"{default_value:.2f}")
+
+    s = st.text_input(label, value=st.session_state[s_key], key=s_key, help=help)
+    s = s.strip()
+
+    # allow commas like "1,234.5"
+    s_clean = s.replace(",", "")
+
+    try:
+        val = float(s_clean)
+        # keep what user typed (no forced rounding)
+        st.session_state[s_key] = s
+        return val
+    except Exception:
+        raise ValueError(f"Invalid number for '{label}': {s}")
+
+
+# ================================
 # Units
 # ================================
 FLOW_UNITS = ["m3/h", "m3/s", "m3/min", "L/h", "L/min", "L/s", "gpm (US)", "gpm (Imp)", "cfm"]
@@ -24,28 +52,6 @@ AREA_UNITS = ["m2", "cm2", "mm2", "in2", "ft2"]
 VEL_UNITS = ["m/s", "m/min", "m/h", "ft/s", "ft/min"]
 
 G0 = 9.80665  # m/s²
-
-# ================================
-# Numeric input formatting (NEW)
-# Default shows 2 decimals, but allow up to 8 decimals by typing/spinning
-# ================================
-DEFAULT_FMT_2DP = "%.2f"
-STEP_8DP = 1e-8
-
-def num_in(label, value, key, min_value=None, max_value=None, help=None):
-    kwargs = dict(
-        label=label,
-        value=value,
-        format=DEFAULT_FMT_2DP,
-        step=STEP_8DP,
-        key=key,
-        help=help,
-    )
-    if min_value is not None:
-        kwargs["min_value"] = min_value
-    if max_value is not None:
-        kwargs["max_value"] = max_value
-    return st.number_input(**kwargs)
 
 
 # ================================
@@ -517,7 +523,8 @@ with tabs[0]:
     st.subheader("Flow unit converter")
     c1, c2, c3, c4 = st.columns([1.2, 1.2, 1.2, 1.2])
     with c1:
-        flow_val = num_in("Value", 100.0, "flow_val")
+        # ✅ precision-safe input (NEW)
+        flow_val = num_text_in("Value", 100.0, "flow_val")
     with c2:
         flow_from = st.selectbox("From unit", FLOW_UNITS, index=4, key="flow_from")
     with c3:
@@ -546,7 +553,8 @@ with tabs[0]:
     st.subheader("Pressure unit converter")
     p1, p2, p3, p4 = st.columns([1.2, 1.2, 1.2, 1.2])
     with p1:
-        p_val = num_in("Value ", 35.0, "p_val")
+        # ✅ precision-safe input (NEW)
+        p_val = num_text_in("Value ", 35.0, "p_val")
     with p2:
         p_from = st.selectbox("From unit ", DP_UNITS, index=1, key="p_from")
     with p3:
@@ -575,11 +583,11 @@ with tabs[0]:
     st.subheader("Pressure Head Calculator")
     hc1, hc2, hc3 = st.columns([1.3, 1.3, 1.1])
     with hc1:
-        head_val = num_in("Input Value", 10.0, "head_val")
+        head_val = st.number_input("Input Value", value=10.0, key="head_val")
     with hc2:
         head_unit = st.selectbox("Input Unit", DP_UNITS + ["m"], index=0, key="head_unit")
     with hc3:
-        sg_val = num_in("Specific Gravity (SG)", 1.0, "head_sg")
+        sg_val = st.number_input("Specific Gravity (SG)", value=1.0, step=0.01, key="head_sg")
 
     convert_type = st.radio(
         "Conversion Type",
@@ -609,12 +617,13 @@ with tabs[0]:
         else:
             kind, val, u = st.session_state.head_result
             if kind == "Head":
-                st.success(f"Head = **{val:.6g} {u}**")
+                st.success(f"Head = **{val:.4f} {u}**")
             else:
                 st.success(f"Pressure = **{val:.6g} {u}**")
 
     st.divider()
 
+    # Velocity/Area calculator
     st.subheader("Flow / Velocity / Area Calculator")
 
     st.session_state.setdefault("va_mode", "Flow rate + Area → Velocity")
@@ -634,22 +643,22 @@ with tabs[0]:
     if st.session_state.va_mode == "Flow rate + Area → Velocity":
         r1, r2, r3, r4 = st.columns([1.2, 1.2, 1.2, 1.2])
         with r1:
-            q_val = num_in("Flow rate value", 100.0, "va_q_val")
+            q_val = st.number_input("Flow rate value", value=100.0, key="va_q_val")
         with r2:
             q_unit = st.selectbox("Flow rate unit", FLOW_UNITS, index=4, key="va_q_unit")
         with r3:
-            a_val = num_in("Area value", 100.0, "va_a_val")
+            a_val = st.number_input("Area value", value=100.0, key="va_a_val")
         with r4:
             a_unit = st.selectbox("Area unit", AREA_UNITS, index=2, key="va_a_unit")
 
     else:
         r1, r2, r3, r4 = st.columns([1.2, 1.2, 1.2, 1.2])
         with r1:
-            v_val = num_in("Velocity value", 1.0, "va_v_val")
+            v_val = st.number_input("Velocity value", value=1.0, key="va_v_val")
         with r2:
             v_unit = st.selectbox("Velocity unit", VEL_UNITS, index=0, key="va_v_unit")
         with r3:
-            a_val = num_in("Area value ", 100.0, "va_a_val2")
+            a_val = st.number_input("Area value ", value=100.0, key="va_a_val2")
         with r4:
             a_unit = st.selectbox("Area unit ", AREA_UNITS, index=2, key="va_a_unit2")
 
@@ -776,9 +785,8 @@ with tabs[1]:
 
         c_int1, c_int2 = st.columns(2)
         with c_int1:
-            sys_dp0 = num_in("System ΔP0 (same ΔP unit)", 5.0, "sys_dp0")
+            sys_dp0 = st.number_input("System ΔP0 (same ΔP unit)", value=5.0, key="sys_dp0")
         with c_int2:
-            # keep your 8-decimal format for k
             sys_k = st.number_input("System k (ΔP / Q²)", value=0.001, format="%.8f", key="sys_k")
 
         st.markdown("**Plot options**")
