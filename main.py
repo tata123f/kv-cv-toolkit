@@ -4,6 +4,7 @@
 # - Pressure unit converter (Pa/kPa/bar/MPa/psi/inH2O/mmAq) (persistent results)
 # - Pressure Head calculator (same tab)
 # - Flow/Velocity/Area calculator (same tab, persistent, bi-directional)
+# - Pipe Diameter → Internal Area table (same tab, metric + english)  ✅ NEW
 # - Kv/Cv from points (>=1 point)
 # - Fit ΔP = a·Q^n (>=2 points)
 # - Cv PQ plot (Measured + Fit) using pure SVG (NO matplotlib, NO plotly)  [ALONE]
@@ -139,6 +140,33 @@ def ms_to_vel(v_ms, unit):
     if unit == "ft/s":  return v_ms / 0.3048
     if unit == "ft/min":return v_ms * 60.0 / 0.3048
     raise ValueError(f"Unsupported velocity unit: {unit}")
+
+
+# ================================
+# Pipe diameter → area helpers  ✅ NEW
+# ================================
+def diam_to_area(d, unit):
+    """
+    d: diameter value
+    unit: 'mm' or 'in'
+    returns area in m²
+    """
+    if unit == "mm":
+        d_m = d / 1000.0
+    elif unit == "in":
+        d_m = d * 0.0254
+    else:
+        raise ValueError("Unsupported diameter unit")
+    return math.pi * (d_m / 2.0) ** 2
+
+
+def m2_to_area_units(a_m2):
+    return {
+        "mm2": a_m2 * 1e6,
+        "cm2": a_m2 * 1e4,
+        "m2": a_m2,
+        "in2": a_m2 / (0.0254 ** 2),
+    }
 
 
 # ================================
@@ -706,6 +734,59 @@ with tabs[0]:
         st.error(st.session_state.va_inputs)
     else:
         st.info("Enter values and click **Calculate**. You can change the output unit after calculation.")
+
+    # ================================
+    # Pipe Diameter → Internal Area Table  ✅ NEW UI
+    # ================================
+    st.divider()
+    st.subheader("Pipe Diameter → Internal Area Table")
+    st.caption("Reference table (useful for velocity/flow sizing). Shows metric + English units together.")
+
+    d1, d2, d3, d4 = st.columns([1.1, 1.1, 1.1, 1.1])
+    with d1:
+        dia_unit = st.selectbox("Diameter input unit", ["mm", "in"], index=0, key="dia_unit")
+    with d2:
+        d_min = st.number_input("Min diameter", value=10.0, key="dia_min")
+    with d3:
+        d_max = st.number_input("Max diameter", value=100.0, key="dia_max")
+    with d4:
+        d_step = st.number_input("Step", value=10.0, key="dia_step")
+
+    gen = st.button("Generate Diameter Table", use_container_width=True, key="btn_dia_table")
+
+    if gen:
+        if d_step <= 0:
+            st.error("Step must be > 0.")
+        elif d_max < d_min:
+            st.error("Max diameter must be ≥ Min diameter.")
+        else:
+            rows = []
+            d = float(d_min)
+
+            # protect against infinite loops due to floating error
+            max_iter = 2000
+            it = 0
+
+            while d <= d_max + 1e-12 and it < max_iter:
+                area_m2 = diam_to_area(d, dia_unit)
+                areas = m2_to_area_units(area_m2)
+
+                d_mm = d if dia_unit == "mm" else d * 25.4
+                d_in = d if dia_unit == "in" else d / 25.4
+
+                rows.append({
+                    "Diameter (mm)": round(d_mm, 3),
+                    "Diameter (in)": round(d_in, 4),
+                    "Area (mm²)": round(areas["mm2"], 2),
+                    "Area (cm²)": round(areas["cm2"], 3),
+                    "Area (m²)": f"{areas['m2']:.6g}",
+                    "Area (in²)": round(areas["in2"], 4),
+                })
+
+                d += float(d_step)
+                it += 1
+
+            st.dataframe(rows, use_container_width=True, hide_index=True)
 
 
 # ---------- Kv/Cv Tool ----------
