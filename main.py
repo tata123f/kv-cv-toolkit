@@ -16,7 +16,7 @@
 
 import math
 import streamlit as st
-
+import pandas as pd
 
 # ================================
 # Units
@@ -1333,19 +1333,25 @@ with tabs[2]:
     fluid = st.selectbox("Fluid", list(CP_REF.keys()), index=3, key="cp_fluid_sel")
     data = CP_REF[fluid]
     tmin, tmax = min(data["temps_C"]), max(data["temps_C"])
-    t_query = st.slider("Temperature (°C)", min_value=float(tmin), max_value=float(tmax), value=float(min(20, tmax)), step=1.0, key="cp_temp_slider")
+    t_query = st.slider(
+        "Temperature (°C)",
+        min_value=float(tmin),
+        max_value=float(tmax),
+        value=float(min(20, tmax)),
+        step=1.0,
+        key="cp_temp_slider"
+    )
 
     cp_kjkgk = interp_1d(t_query, data["temps_C"], data["cp_kJkgK"])
     st.info(f"At **{t_query:.0f} °C**: Cp ≈ **{cp_kjkgk:.4g} kJ/kg·K** (≈ {cp_kjkgk*1000:.0f} J/kg·K)")
 
-    # Simple chart table
-    chart_rows = [{"Temp (°C)": t, "Cp (kJ/kg·K)": cp} for t, cp in zip(data["temps_C"], data["cp_kJkgK"])]
-    st.dataframe(chart_rows, use_container_width=True, hide_index=True)
+    # Table
+    chart_df = pd.DataFrame({
+        "Temp (°C)": data["temps_C"],
+        "Cp (kJ/kg·K)": data["cp_kJkgK"],
+    })
+    st.dataframe(chart_df, use_container_width=True, hide_index=True)
 
-    # Streamlit built-in line chart
-    # (Create a simple dict-of-lists so st.line_chart can render)
-    st.line_chart(
-        {"Cp (kJ/kg·K)": data["cp_kJkgK"]},
-        x=data["temps_C"],
-        height=240
-    )
+    # Line chart (use Temp as the x-axis by setting it as index)
+    chart_df2 = chart_df.set_index("Temp (°C)")
+    st.line_chart(chart_df2, height=240, use_container_width=True)
