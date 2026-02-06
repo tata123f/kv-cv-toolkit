@@ -1122,15 +1122,21 @@ with tabs[1]:
             st.info("No Cv plot yet. Click **Plot Cv PQ**.")
 
         st.subheader("Pump/System Plot (Separate Diagram)")
-        if st.session_state.pump_system_text:
-            st.info(st.session_state.pump_system_text)
-        else:
-            st.info("System curve equation will show here after **Plot Pump/System** (or **Compute Intersection**).")
 
+        # 1) Plot first (drawing)
         if st.session_state.ps_svg:
             st.components.v1.html(st.session_state.ps_svg, height=560, scrolling=False)
         else:
             st.info("No pump/system plot yet. Click **Plot Pump/System**.")
+
+        # 2) Results text under the plot, with clean separate lines
+        if st.session_state.pump_system_text:
+            st.markdown(
+                "**Pump/System calculation results**\n\n" +
+                st.session_state.pump_system_text.replace("\n", "  \n")
+            )
+        else:
+            st.info("System curve equation and intersection will show here after **Plot Pump/System** (or **Compute Intersection**).")
 
 
 # ---------- Thermal Calculator ----------
