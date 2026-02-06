@@ -554,7 +554,7 @@ def thermal_density_from_base(p_w, area_m2, out_unit):
 # ================================
 st.set_page_config(page_title="Kv/Cv Toolkit", layout="wide")
 
-st.title("Kv / Cv Toolkit (Web)")
+st.title("Toolkit (Web)")
 st.caption("Converters • Pressure head • Velocity calc • Kv/Cv • Fit • Cv plot • Pump/System plot • Thermal density")
 
 tabs = st.tabs(["Converters", "Kv/Cv Tool", "Thermal Calculator"])
