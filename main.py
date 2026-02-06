@@ -559,7 +559,7 @@ st.set_page_config(page_title="Kv/Cv Toolkit", layout="wide")
 st.title("Kv / Cv Toolkit (Web)")
 st.caption("Converters • Pressure head • Velocity calc • Kv/Cv • Fit • Cv plot • Pump/System plot")
 
-tabs = st.tabs(["Converters", "Kv/Cv Tool", "Thermal calculator"])
+tabs = st.tabs(["Converters", "Kv/Cv Tool", "Thermal Calculator"])
 
 
 # ---------- Converters ----------
