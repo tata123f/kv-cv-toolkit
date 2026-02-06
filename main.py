@@ -965,7 +965,7 @@ with tabs[1]:
     # Pump vs System Curve (FULL WIDTH)
     # ================================
     st.divider()
-    st.subheader("Pump vs System Curve (Separate Diagram)")
+    st.subheader("Pump vs System Curve")
     st.caption("Pump points use SAME units as above. System curve: ΔP_sys = ΔP0 + k·Q²")
 
     pump_text = st.text_area(
