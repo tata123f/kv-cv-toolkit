@@ -8,8 +8,11 @@
 # - Kv/Cv from points (>=1 point)
 # - Fit ΔP = a·Q^n (>=2 points)
 # - Cv PQ plot (Measured + Fit) using pure SVG (NO matplotlib, NO plotly)
-# - Pump curve vs System curve (full-width) + Intersection optional + Clear buttons
-# - Thermal Calculator tab: Thermal Density Calculator (metric + english density units)
+# - Pump curve vs System curve (plot + text shown in the SAME full-width block)
+# - Thermal Calculator tab:
+#     - Thermal density calculator (power/area with metric + English density units)
+#     - Heat transfer calculator: Q = m_dot * Cp * ΔT (with unit choices)
+#     - Cp reference chart (air, nitrogen, helium, water, PG25, R-1233zd, R515B)
 
 import math
 import streamlit as st
@@ -125,19 +128,19 @@ def area_to_m2(a, unit):
 
 
 def vel_to_ms(v, unit):
-    if unit == "m/s":   return v
-    if unit == "m/min": return v / 60.0
-    if unit == "m/h":   return v / 3600.0
-    if unit == "ft/s":  return v * 0.3048
+    if unit == "m/s":    return v
+    if unit == "m/min":  return v / 60.0
+    if unit == "m/h":    return v / 3600.0
+    if unit == "ft/s":   return v * 0.3048
     if unit == "ft/min": return v * 0.3048 / 60.0
     raise ValueError(f"Unsupported velocity unit: {unit}")
 
 
 def ms_to_vel(v_ms, unit):
-    if unit == "m/s":   return v_ms
-    if unit == "m/min": return v_ms * 60.0
-    if unit == "m/h":   return v_ms * 3600.0
-    if unit == "ft/s":  return v_ms / 0.3048
+    if unit == "m/s":    return v_ms
+    if unit == "m/min":  return v_ms * 60.0
+    if unit == "m/h":    return v_ms * 3600.0
+    if unit == "ft/s":   return v_ms / 0.3048
     if unit == "ft/min": return v_ms * 60.0 / 0.3048
     raise ValueError(f"Unsupported velocity unit: {unit}")
 
@@ -166,6 +169,7 @@ def m2_to_area_units(a_m2):
         "cm2": a_m2 * 1e4,
         "m2": a_m2,
         "in2": a_m2 / (0.0254 ** 2),
+        "ft2": a_m2 / (0.3048 ** 2),
     }
 
 
@@ -513,14 +517,12 @@ THERMAL_DENSITY_UNITS = [
     "W/in2", "W/ft2", "kW/in2", "kW/ft2"
 ]
 
-
 def power_to_w(p, unit):
     if unit == "W":
         return p
     if unit == "kW":
         return p * 1000.0
     raise ValueError("Unsupported power unit")
-
 
 def thermal_density_from_base(p_w, area_m2, out_unit):
     if area_m2 <= 0:
@@ -549,13 +551,106 @@ def thermal_density_from_base(p_w, area_m2, out_unit):
     raise ValueError("Unsupported thermal density unit")
 
 
+# ---- Q = m_dot * Cp * dT helpers ----
+MDOT_UNITS = ["kg/s", "kg/min", "kg/h", "g/s", "lb/s", "lb/min", "lb/h"]
+CP_UNITS = ["J/kg-K", "kJ/kg-K", "J/g-K", "Btu/lbm-°F"]
+DT_UNITS = ["K", "°C", "°F"]
+Q_UNITS = ["W", "kW", "MW", "Btu/s", "Btu/h"]
+
+BTU_TO_J = 1055.05585
+LBM_TO_KG = 0.45359237
+
+def mdot_to_kgps(mdot, unit):
+    if unit == "kg/s":  return mdot
+    if unit == "kg/min":return mdot / 60.0
+    if unit == "kg/h":  return mdot / 3600.0
+    if unit == "g/s":   return mdot / 1000.0
+    if unit == "lb/s":  return mdot * LBM_TO_KG
+    if unit == "lb/min":return mdot * LBM_TO_KG / 60.0
+    if unit == "lb/h":  return mdot * LBM_TO_KG / 3600.0
+    raise ValueError("Unsupported mass flow unit")
+
+def cp_to_jkgk(cp, unit):
+    if unit == "J/kg-K":   return cp
+    if unit == "kJ/kg-K":  return cp * 1000.0
+    if unit == "J/g-K":    return cp * 1000.0
+    if unit == "Btu/lbm-°F":
+        # 1 Btu/lbm-°F = 4186.8 J/kg-K
+        return cp * (BTU_TO_J / (LBM_TO_KG * (5.0/9.0)))
+    raise ValueError("Unsupported Cp unit")
+
+def dt_to_k(dt, unit):
+    if unit == "K":  return dt
+    if unit == "°C": return dt
+    if unit == "°F": return dt * (5.0/9.0)
+    raise ValueError("Unsupported ΔT unit")
+
+def w_to_q_units(q_w, unit):
+    if unit == "W":     return q_w
+    if unit == "kW":    return q_w / 1000.0
+    if unit == "MW":    return q_w / 1_000_000.0
+    if unit == "Btu/s": return q_w / BTU_TO_J
+    if unit == "Btu/h": return (q_w * 3600.0) / BTU_TO_J
+    raise ValueError("Unsupported Q unit")
+
+
+# ---- Cp reference data (simple table + linear interpolation) ----
+# NOTE: These are *reference/typical* values for quick estimation.
+# For design-critical work, use a property library / vendor data.
+CP_REF = {
+    "Air (cp)": {
+        "temps_C": [-20, 0, 20, 40, 60, 80, 100],
+        "cp_kJkgK": [1.003, 1.005, 1.007, 1.011, 1.016, 1.022, 1.029],
+    },
+    "Nitrogen (cp)": {
+        "temps_C": [-20, 0, 20, 40, 60, 80, 100],
+        "cp_kJkgK": [1.039, 1.040, 1.041, 1.043, 1.046, 1.049, 1.052],
+    },
+    "Helium (cp)": {
+        "temps_C": [-20, 0, 20, 40, 60, 80, 100],
+        "cp_kJkgK": [5.19, 5.19, 5.19, 5.19, 5.19, 5.19, 5.19],
+    },
+    "Water (liquid)": {
+        "temps_C": [0, 10, 20, 40, 60, 80, 100],
+        "cp_kJkgK": [4.217, 4.192, 4.182, 4.179, 4.183, 4.195, 4.216],
+    },
+    "PG25 (propylene glycol 25%)": {
+        "temps_C": [-10, 0, 20, 40, 60, 80],
+        "cp_kJkgK": [3.55, 3.62, 3.78, 3.90, 4.02, 4.12],
+    },
+    "R-1233zd (reference)": {
+        "temps_C": [0, 20, 40, 60, 80],
+        "cp_kJkgK": [1.05, 1.08, 1.12, 1.16, 1.20],
+    },
+    "R515B (reference)": {
+        "temps_C": [0, 20, 40, 60, 80],
+        "cp_kJkgK": [1.20, 1.24, 1.28, 1.32, 1.36],
+    },
+}
+
+def interp_1d(x, xs, ys):
+    if x <= xs[0]:
+        return ys[0]
+    if x >= xs[-1]:
+        return ys[-1]
+    for i in range(len(xs) - 1):
+        x0, x1 = xs[i], xs[i+1]
+        if x0 <= x <= x1:
+            y0, y1 = ys[i], ys[i+1]
+            if x1 == x0:
+                return y0
+            t = (x - x0) / (x1 - x0)
+            return y0 * (1 - t) + y1 * t
+    return ys[-1]
+
+
 # ================================
 # Streamlit UI
 # ================================
 st.set_page_config(page_title="Kv/Cv Toolkit", layout="wide")
 
-st.title("Toolkit (Web)")
-st.caption("Converters • Pressure head • Velocity calc • Kv/Cv • Fit • Cv plot • Pump/System plot • Thermal density")
+st.title("Kv / Cv Toolkit (Web)")
+st.caption("Converters • Pressure head • Velocity calc • Kv/Cv • Fit • Cv plot • Pump/System plot • Thermal calculators")
 
 tabs = st.tabs(["Converters", "Kv/Cv Tool", "Thermal Calculator"])
 
@@ -733,7 +828,6 @@ with tabs[0]:
                 st.session_state.va_flow_m3s = Q_m3s
                 st.session_state.va_vel_ms = v_ms
                 st.session_state.va_inputs = ("v+A→Q", v_val, v_unit, a_val, a_unit)
-
         except Exception as e:
             st.session_state.va_flow_m3s = "__ERROR__"
             st.session_state.va_vel_ms = "__ERROR__"
@@ -803,10 +897,8 @@ with tabs[0]:
         else:
             rows = []
             d = float(d_min)
-
             max_iter = 2000
             it = 0
-
             while d <= d_max + 1e-12 and it < max_iter:
                 area_m2 = diam_to_area(d, dia_unit)
                 areas = m2_to_area_units(area_m2)
@@ -821,6 +913,7 @@ with tabs[0]:
                     "Area (cm²)": round(areas["cm2"], 3),
                     "Area (m²)": f"{areas['m2']:.6g}",
                     "Area (in²)": round(areas["in2"], 4),
+                    "Area (ft²)": round(areas["ft2"], 6),
                 })
 
                 d += float(d_step)
@@ -835,19 +928,18 @@ with tabs[1]:
     st.session_state.setdefault("last_fit", None)
     st.session_state.setdefault("results_text", "")
     st.session_state.setdefault("cv_svg", None)
-
     st.session_state.setdefault("ps_svg", None)
     st.session_state.setdefault("pump_system_text", "")
 
-    st.subheader("Kv/Cv from points + Fit")
-    st.caption("Paste points (Q, ΔP). Calculates Kv/Cv and optionally fits ΔP = a·Q^n.")
+    st.subheader("Inputs")
 
     sg = st.number_input("Specific Gravity (SG)", value=1.0, min_value=0.000001, step=0.01, key="kv_sg")
     flow_unit = st.selectbox("Flow unit (input points)", FLOW_UNITS, index=4, key="kv_flow_unit")
     dp_unit = st.selectbox("ΔP unit (input points)", DP_UNITS, index=1, key="kv_dp_unit")
 
+    st.markdown("**Paste points (Q, ΔP) — one per line**")
     points_text = st.text_area(
-        "Paste points (Q, ΔP) — one per line",
+        "Example format: `120, 35`",
         value="120, 35\n150, 45\n180, 62\n",
         height=180,
         key="kv_points_text"
@@ -952,7 +1044,8 @@ with tabs[1]:
     st.text_area(
         "Output",
         value=st.session_state.get("results_text", "Click 'Calculate / Fit' to see results."),
-        height=260
+        height=260,
+        key="kv_results_area"
     )
 
     st.subheader("Cv PQ Plot (Measured + Fit)")
@@ -961,11 +1054,8 @@ with tabs[1]:
     else:
         st.info("No Cv plot yet. Click **Plot Cv PQ**.")
 
-    # ================================
-    # Pump vs System Curve (FULL WIDTH)
-    # ================================
     st.divider()
-    st.subheader("Pump vs System Curve")
+    st.subheader("Pump vs System Curve (Separate Diagram)")
     st.caption("Pump points use SAME units as above. System curve: ΔP_sys = ΔP0 + k·Q²")
 
     pump_text = st.text_area(
@@ -975,19 +1065,13 @@ with tabs[1]:
         key="pump_points_text"
     )
 
-    c_int1, c_int2, c_int3 = st.columns([1.2, 1.2, 1.0])
+    c_int1, c_int2 = st.columns(2)
     with c_int1:
         sys_dp0 = st.number_input("System ΔP0 (same ΔP unit)", value=5.0, key="sys_dp0")
     with c_int2:
         sys_k = st.number_input("System k (ΔP / Q²)", value=0.001, format="%.8f", key="sys_k")
-    with c_int3:
-        legend_loc = st.selectbox(
-            "Legend location",
-            ["Auto", "Top-left", "Top-right", "Bottom-left", "Bottom-right", "Outside-right"],
-            index=0,
-            key="ps_legend_loc"
-        )
 
+    st.markdown("**Plot options**")
     plot_mode = st.selectbox(
         "What to plot",
         [
@@ -999,6 +1083,13 @@ with tabs[1]:
         ],
         index=4,
         key="ps_plot_mode"
+    )
+
+    legend_loc = st.selectbox(
+        "Legend location",
+        ["Auto", "Top-left", "Top-right", "Bottom-left", "Bottom-right", "Outside-right"],
+        index=0,
+        key="ps_legend_loc"
     )
 
     bb1, bb2, bb3 = st.columns(3)
@@ -1068,12 +1159,7 @@ with tabs[1]:
             if plot_mode in ["Pump curve only", "Pump + System", "Pump + System + Operating point"]:
                 pump_Q_axis = [m3h_to_flow(q, flow_unit) for q in pump_Q_m3h]
                 pump_dp_axis = [bar_to_dp(dpb, dp_unit) for dpb in pump_dp_bar]
-                curves.append({
-                    "name": "Pump curve",
-                    "pts": list(zip(pump_Q_axis, pump_dp_axis)),
-                    "stroke": "#d64545",
-                    "width": 3
-                })
+                curves.append({"name": "Pump curve", "pts": list(zip(pump_Q_axis, pump_dp_axis)), "stroke": "#d64545", "width": 3})
 
             if plot_mode in ["System curve only", "Pump + System", "Pump + System + Operating point"]:
                 if len(pump_Q_m3h) >= 2:
@@ -1086,12 +1172,7 @@ with tabs[1]:
                 sys_dp_bar = [system_dp(q, dp0_bar, k_bar_per_m3h2) for q in qs_m3h]
                 sys_Q_axis = [m3h_to_flow(q, flow_unit) for q in qs_m3h]
                 sys_dp_axis = [bar_to_dp(dpb, dp_unit) for dpb in sys_dp_bar]
-                curves.append({
-                    "name": "System curve",
-                    "pts": list(zip(sys_Q_axis, sys_dp_axis)),
-                    "stroke": "#2f855a",
-                    "width": 3
-                })
+                curves.append({"name": "System curve", "pts": list(zip(sys_Q_axis, sys_dp_axis)), "stroke": "#2f855a", "width": 3})
 
             if plot_mode in ["Operating point only", "Pump + System + Operating point"]:
                 if len(pump_Q_m3h) < 2:
@@ -1118,20 +1199,19 @@ with tabs[1]:
                 markers=markers,
                 legend_loc=legend_loc
             )
-
         except Exception as e:
             st.error(str(e))
 
-    # Plot + text in same full-width block
+    # Show pump/system equation + plot in the SAME full-width block
+    if st.session_state.pump_system_text:
+        st.info(st.session_state.pump_system_text)
+    else:
+        st.info("System curve equation will show here after **Plot Pump/System** (or **Compute Intersection**).")
+
     if st.session_state.ps_svg:
         st.components.v1.html(st.session_state.ps_svg, height=560, scrolling=False)
     else:
         st.info("No pump/system plot yet. Click **Plot Pump/System**.")
-
-    if st.session_state.pump_system_text:
-        st.markdown(st.session_state.pump_system_text.replace("\n", "  \n"))
-    else:
-        st.info("System equation and intersection will appear here after plotting (or computing intersection).")
 
 
 # ---------- Thermal Calculator ----------
@@ -1143,17 +1223,17 @@ with tabs[2]:
 
     t1, t2, t3, t4 = st.columns([1.2, 1.2, 1.2, 1.2])
     with t1:
-        p_val = st.number_input("Thermal power", value=300.0, min_value=0.0, key="th_p_val")
+        th_p_val = st.number_input("Thermal power", value=300.0, min_value=0.0, key="th_p_val")
     with t2:
-        p_unit = st.selectbox("Power unit", THERMAL_POWER_UNITS, index=0, key="th_p_unit")
+        th_p_unit = st.selectbox("Power unit", THERMAL_POWER_UNITS, index=0, key="th_p_unit")
     with t3:
-        a_val = st.number_input("Chip area", value=600.0, min_value=0.0, key="th_a_val")
+        th_a_val = st.number_input("Chip area", value=600.0, min_value=0.0, key="th_a_val")
     with t4:
-        a_unit = st.selectbox("Area unit", AREA_UNITS, index=2, key="th_a_unit")
+        th_a_unit = st.selectbox("Area unit", AREA_UNITS, index=2, key="th_a_unit")
 
     o1, o2 = st.columns([2.5, 1])
     with o2:
-        out_unit = st.selectbox(
+        th_out_unit = st.selectbox(
             "Output unit",
             THERMAL_DENSITY_UNITS,
             index=0,
@@ -1162,27 +1242,21 @@ with tabs[2]:
 
     b1, b2 = st.columns([1, 1])
     with b1:
-        do_calc = st.button("Calculate Thermal Density", use_container_width=True, key="th_calc")
+        th_do_calc = st.button("Calculate Thermal Density", use_container_width=True, key="th_calc")
     with b2:
-        do_clear = st.button("Clear Result", use_container_width=True, key="th_clear")
+        th_do_clear = st.button("Clear Result", use_container_width=True, key="th_clear")
 
-    if do_clear:
+    if th_do_clear:
         st.session_state.thermal_result = None
 
-    if do_calc:
+    if th_do_calc:
         try:
-            if a_val <= 0:
+            if th_a_val <= 0:
                 raise ValueError("Area must be > 0")
-            p_w = power_to_w(p_val, p_unit)
-            a_m2 = area_to_m2(a_val, a_unit)
-            td = thermal_density_from_base(p_w, a_m2, out_unit)
-
-            st.session_state.thermal_result = (
-                p_val, p_unit,
-                a_val, a_unit,
-                td, out_unit
-            )
-
+            p_w = power_to_w(th_p_val, th_p_unit)
+            a_m2 = area_to_m2(th_a_val, th_a_unit)
+            td = thermal_density_from_base(p_w, a_m2, th_out_unit)
+            st.session_state.thermal_result = (th_p_val, th_p_unit, th_a_val, th_a_unit, td, th_out_unit)
         except Exception as e:
             st.session_state.thermal_result = ("__ERROR__", str(e))
 
@@ -1191,9 +1265,87 @@ with tabs[2]:
             st.error(st.session_state.thermal_result[1])
         else:
             pv, pu, av, au, td, ou = st.session_state.thermal_result
-            st.success(
-                f"Power = {pv:g} {pu}, Area = {av:g} {au}  →  "
-                f"**Thermal density = {td:.6g} {ou}**"
-            )
+            st.success(f"Power = {pv:g} {pu}, Area = {av:g} {au}  →  **Thermal density = {td:.6g} {ou}**")
     else:
         st.info("Enter power and area, then click **Calculate Thermal Density**.")
+
+    st.divider()
+
+    st.subheader("Heat Transfer Calculator")
+    st.caption("Q = ṁ · Cp · ΔT  (choose your input/output units)")
+
+    st.session_state.setdefault("q_mcp_result", None)
+
+    c1, c2, c3, c4 = st.columns([1.2, 1.2, 1.2, 1.2])
+    with c1:
+        mdot_val = st.number_input("Mass flow ṁ", value=1.0, min_value=0.0, key="q_mdot_val")
+    with c2:
+        mdot_unit = st.selectbox("ṁ unit", MDOT_UNITS, index=0, key="q_mdot_unit")
+    with c3:
+        cp_val = st.number_input("Specific heat Cp", value=4.18, min_value=0.0, key="q_cp_val")
+    with c4:
+        cp_unit = st.selectbox("Cp unit", CP_UNITS, index=1, key="q_cp_unit")
+
+    d1, d2, d3 = st.columns([1.2, 1.2, 1.6])
+    with d1:
+        dt_val = st.number_input("ΔT", value=5.0, min_value=0.0, key="q_dt_val")
+    with d2:
+        dt_unit = st.selectbox("ΔT unit", DT_UNITS, index=1, key="q_dt_unit")
+    with d3:
+        q_out_unit = st.selectbox("Output Q unit", Q_UNITS, index=1, key="q_out_unit")
+
+    b1, b2 = st.columns([1, 1])
+    with b1:
+        q_calc = st.button("Calculate Q", use_container_width=True, key="q_calc_btn")
+    with b2:
+        q_clear = st.button("Clear Q Result", use_container_width=True, key="q_clear_btn")
+
+    if q_clear:
+        st.session_state.q_mcp_result = None
+
+    if q_calc:
+        try:
+            mdot_kgps = mdot_to_kgps(mdot_val, mdot_unit)
+            cp_jkgk = cp_to_jkgk(cp_val, cp_unit)
+            dt_k = dt_to_k(dt_val, dt_unit)
+            q_w = mdot_kgps * cp_jkgk * dt_k
+            q_out = w_to_q_units(q_w, q_out_unit)
+            st.session_state.q_mcp_result = (mdot_val, mdot_unit, cp_val, cp_unit, dt_val, dt_unit, q_out, q_out_unit)
+        except Exception as e:
+            st.session_state.q_mcp_result = ("__ERROR__", str(e))
+
+    if st.session_state.q_mcp_result is not None:
+        if st.session_state.q_mcp_result[0] == "__ERROR__":
+            st.error(st.session_state.q_mcp_result[1])
+        else:
+            mv, mu, cv, cu, dv, du, qv, qu = st.session_state.q_mcp_result
+            st.success(
+                f"ṁ={mv:g} {mu}, Cp={cv:g} {cu}, ΔT={dv:g} {du}  →  **Q={qv:.6g} {qu}**"
+            )
+    else:
+        st.info("Enter ṁ, Cp, and ΔT, then click **Calculate Q**.")
+
+    st.divider()
+
+    st.subheader("Specific Heat Cp Reference Chart")
+    st.caption("Quick reference only (typical values). Use REFPROP/CoolProp/vendor data for design-critical work.")
+
+    fluid = st.selectbox("Fluid", list(CP_REF.keys()), index=3, key="cp_fluid_sel")
+    data = CP_REF[fluid]
+    tmin, tmax = min(data["temps_C"]), max(data["temps_C"])
+    t_query = st.slider("Temperature (°C)", min_value=float(tmin), max_value=float(tmax), value=float(min(20, tmax)), step=1.0, key="cp_temp_slider")
+
+    cp_kjkgk = interp_1d(t_query, data["temps_C"], data["cp_kJkgK"])
+    st.info(f"At **{t_query:.0f} °C**: Cp ≈ **{cp_kjkgk:.4g} kJ/kg·K** (≈ {cp_kjkgk*1000:.0f} J/kg·K)")
+
+    # Simple chart table
+    chart_rows = [{"Temp (°C)": t, "Cp (kJ/kg·K)": cp} for t, cp in zip(data["temps_C"], data["cp_kJkgK"])]
+    st.dataframe(chart_rows, use_container_width=True, hide_index=True)
+
+    # Streamlit built-in line chart
+    # (Create a simple dict-of-lists so st.line_chart can render)
+    st.line_chart(
+        {"Cp (kJ/kg·K)": data["cp_kJkgK"]},
+        x=data["temps_C"],
+        height=240
+    )
