@@ -502,6 +502,54 @@ def fmt_num(x):
         return "0"
     return f"{x:.6g}"
 
+# ================================
+# Thermal helpers  ✅ NEW
+# ================================
+THERMAL_POWER_UNITS = ["W", "kW"]
+
+# add English density units too
+THERMAL_DENSITY_UNITS = [
+    "W/mm2", "W/cm2", "W/m2", "kW/cm2",
+    "W/in2", "W/ft2", "kW/in2", "kW/ft2"
+]
+
+def power_to_w(p, unit):
+    if unit == "W":
+        return p
+    if unit == "kW":
+        return p * 1000.0
+    raise ValueError("Unsupported power unit")
+
+def area_to_m2_for_thermal(a, unit):
+    # reuse your existing area_to_m2()
+    return area_to_m2(a, unit)
+
+def thermal_density_from_base(p_w, area_m2, out_unit):
+    if area_m2 <= 0:
+        raise ValueError("Area must be > 0")
+
+    # Metric outputs
+    if out_unit == "W/m2":
+        return p_w / area_m2
+    if out_unit == "W/cm2":
+        return p_w / (area_m2 * 1e4)
+    if out_unit == "W/mm2":
+        return p_w / (area_m2 * 1e6)
+    if out_unit == "kW/cm2":
+        return (p_w / 1000.0) / (area_m2 * 1e4)
+
+    # English outputs
+    if out_unit == "W/in2":
+        return p_w / (area_m2 / (0.0254 ** 2))
+    if out_unit == "W/ft2":
+        return p_w / (area_m2 / (0.3048 ** 2))
+    if out_unit == "kW/in2":
+        return (p_w / 1000.0) / (area_m2 / (0.0254 ** 2))
+    if out_unit == "kW/ft2":
+        return (p_w / 1000.0) / (area_m2 / (0.3048 ** 2))
+
+    raise ValueError("Unsupported thermal density unit")
+
 
 # ================================
 # Streamlit UI
@@ -511,7 +559,7 @@ st.set_page_config(page_title="Kv/Cv Toolkit", layout="wide")
 st.title("Kv / Cv Toolkit (Web)")
 st.caption("Converters • Pressure head • Velocity calc • Kv/Cv • Fit • Cv plot • Pump/System plot")
 
-tabs = st.tabs(["Converters", "Kv/Cv Tool"])
+tabs = st.tabs(["Converters", "Kv/Cv Tool", "Thermal calculator"])
 
 
 # ---------- Converters ----------
@@ -1083,3 +1131,70 @@ with tabs[1]:
             st.components.v1.html(st.session_state.ps_svg, height=560, scrolling=False)
         else:
             st.info("No pump/system plot yet. Click **Plot Pump/System**.")
+
+
+# ---------- Thermal Calculator ----------
+with tabs[2]:
+    st.subheader("Thermal Density Calculator")
+    st.caption("Thermal density = Thermal power ÷ Chip area")
+
+    st.session_state.setdefault("thermal_result", None)
+
+    t1, t2, t3, t4 = st.columns([1.2, 1.2, 1.2, 1.2])
+
+    with t1:
+        p_val = st.number_input("Thermal power", value=300.0, min_value=0.0, key="th_p_val")
+    with t2:
+        p_unit = st.selectbox("Power unit", THERMAL_POWER_UNITS, index=0, key="th_p_unit")
+    with t3:
+        a_val = st.number_input("Chip area", value=600.0, min_value=0.0, key="th_a_val")
+    with t4:
+        a_unit = st.selectbox("Area unit", AREA_UNITS, index=2, key="th_a_unit")
+
+    o1, o2 = st.columns([2.5, 1])
+    with o2:
+        out_unit = st.selectbox(
+            "Output unit",
+            THERMAL_DENSITY_UNITS,
+            index=0,
+            key="th_out_unit"
+        )
+
+    b1, b2 = st.columns([1, 1])
+    with b1:
+        do_calc = st.button("Calculate Thermal Density", use_container_width=True, key="th_calc")
+    with b2:
+        do_clear = st.button("Clear Result", use_container_width=True, key="th_clear")
+
+    if do_clear:
+        st.session_state.thermal_result = None
+
+    if do_calc:
+        try:
+            if a_val <= 0:
+                raise ValueError("Area must be > 0")
+
+            p_w = power_to_w(p_val, p_unit)
+            a_m2 = area_to_m2_for_thermal(a_val, a_unit)
+            td = thermal_density_from_base(p_w, a_m2, out_unit)
+
+            st.session_state.thermal_result = (
+                p_val, p_unit,
+                a_val, a_unit,
+                td, out_unit
+            )
+
+        except Exception as e:
+            st.session_state.thermal_result = ("__ERROR__", str(e))
+
+    if st.session_state.thermal_result is not None:
+        if st.session_state.thermal_result[0] == "__ERROR__":
+            st.error(st.session_state.thermal_result[1])
+        else:
+            pv, pu, av, au, td, ou = st.session_state.thermal_result
+            st.success(
+                f"Power = {pv:g} {pu}, Area = {av:g} {au}  →  "
+                f"**Thermal density = {td:.6g} {ou}**"
+            )
+    else:
+        st.info("Enter power and area, then click **Calculate Thermal Density**.")
