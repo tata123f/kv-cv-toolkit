@@ -4,12 +4,12 @@
 # - Pressure unit converter (Pa/kPa/bar/MPa/psi/inH2O/mmAq) (persistent results)
 # - Pressure Head calculator (same tab)
 # - Flow/Velocity/Area calculator (same tab, persistent, bi-directional)
-# - Pipe Diameter → Internal Area table (same tab, metric + english)  ✅ NEW
+# - Pipe Diameter → Internal Area table (same tab, metric + english)
 # - Kv/Cv from points (>=1 point)
 # - Fit ΔP = a·Q^n (>=2 points)
-# - Cv PQ plot (Measured + Fit) using pure SVG (NO matplotlib, NO plotly)  [ALONE]
-# - Pump curve vs System curve (separate plot) + Intersection optional + Clear buttons
-# - Plot mode selection + legend placement
+# - Cv PQ plot (Measured + Fit) using pure SVG (NO matplotlib, NO plotly)
+# - Pump curve vs System curve (full-width) + Intersection optional + Clear buttons
+# - Thermal Calculator tab: Thermal Density Calculator (metric + english density units)
 
 import math
 import streamlit as st
@@ -129,7 +129,7 @@ def vel_to_ms(v, unit):
     if unit == "m/min": return v / 60.0
     if unit == "m/h":   return v / 3600.0
     if unit == "ft/s":  return v * 0.3048
-    if unit == "ft/min":return v * 0.3048 / 60.0
+    if unit == "ft/min": return v * 0.3048 / 60.0
     raise ValueError(f"Unsupported velocity unit: {unit}")
 
 
@@ -138,12 +138,12 @@ def ms_to_vel(v_ms, unit):
     if unit == "m/min": return v_ms * 60.0
     if unit == "m/h":   return v_ms * 3600.0
     if unit == "ft/s":  return v_ms / 0.3048
-    if unit == "ft/min":return v_ms * 60.0 / 0.3048
+    if unit == "ft/min": return v_ms * 60.0 / 0.3048
     raise ValueError(f"Unsupported velocity unit: {unit}")
 
 
 # ================================
-# Pipe diameter → area helpers  ✅ NEW
+# Pipe diameter → area helpers
 # ================================
 def diam_to_area(d, unit):
     """
@@ -502,16 +502,17 @@ def fmt_num(x):
         return "0"
     return f"{x:.6g}"
 
+
 # ================================
-# Thermal helpers  ✅ NEW
+# Thermal helpers
 # ================================
 THERMAL_POWER_UNITS = ["W", "kW"]
 
-# add English density units too
 THERMAL_DENSITY_UNITS = [
     "W/mm2", "W/cm2", "W/m2", "kW/cm2",
     "W/in2", "W/ft2", "kW/in2", "kW/ft2"
 ]
+
 
 def power_to_w(p, unit):
     if unit == "W":
@@ -520,9 +521,6 @@ def power_to_w(p, unit):
         return p * 1000.0
     raise ValueError("Unsupported power unit")
 
-def area_to_m2_for_thermal(a, unit):
-    # reuse your existing area_to_m2()
-    return area_to_m2(a, unit)
 
 def thermal_density_from_base(p_w, area_m2, out_unit):
     if area_m2 <= 0:
@@ -557,7 +555,7 @@ def thermal_density_from_base(p_w, area_m2, out_unit):
 st.set_page_config(page_title="Kv/Cv Toolkit", layout="wide")
 
 st.title("Kv / Cv Toolkit (Web)")
-st.caption("Converters • Pressure head • Velocity calc • Kv/Cv • Fit • Cv plot • Pump/System plot")
+st.caption("Converters • Pressure head • Velocity calc • Kv/Cv • Fit • Cv plot • Pump/System plot • Thermal density")
 
 tabs = st.tabs(["Converters", "Kv/Cv Tool", "Thermal Calculator"])
 
@@ -669,13 +667,12 @@ with tabs[0]:
 
     st.divider()
 
-    # ✅ Velocity/Area calculator stays ONLY in Converters tab
     st.subheader("Flow / Velocity / Area Calculator")
 
     st.session_state.setdefault("va_mode", "Flow rate + Area → Velocity")
-    st.session_state.setdefault("va_vel_ms", None)          # stored velocity in m/s
-    st.session_state.setdefault("va_flow_m3s", None)        # stored flow in m3/s
-    st.session_state.setdefault("va_inputs", None)          # last inputs
+    st.session_state.setdefault("va_vel_ms", None)
+    st.session_state.setdefault("va_flow_m3s", None)
+    st.session_state.setdefault("va_inputs", None)
     st.session_state.setdefault("va_vel_out_unit", "m/s")
     st.session_state.setdefault("va_flow_out_unit", "L/min")
 
@@ -696,7 +693,6 @@ with tabs[0]:
             a_val = st.number_input("Area value", value=100.0, key="va_a_val")
         with r4:
             a_unit = st.selectbox("Area unit", AREA_UNITS, index=2, key="va_a_unit")
-
     else:
         r1, r2, r3, r4 = st.columns([1.2, 1.2, 1.2, 1.2])
         with r1:
@@ -783,9 +779,6 @@ with tabs[0]:
     else:
         st.info("Enter values and click **Calculate**. You can change the output unit after calculation.")
 
-    # ================================
-    # Pipe Diameter → Internal Area Table  ✅ NEW UI
-    # ================================
     st.divider()
     st.subheader("Pipe Diameter → Internal Area Table")
     st.caption("Reference table (useful for velocity/flow sizing). Shows metric + English units together.")
@@ -811,7 +804,6 @@ with tabs[0]:
             rows = []
             d = float(d_min)
 
-            # protect against infinite loops due to floating error
             max_iter = 2000
             it = 0
 
@@ -837,92 +829,40 @@ with tabs[0]:
             st.dataframe(rows, use_container_width=True, hide_index=True)
 
 
-# ---------- Kv/Cv Tool ----------
+# ---------- Kv/Cv Tool (FULL WIDTH) ----------
 with tabs[1]:
     st.session_state.setdefault("last_data", None)
     st.session_state.setdefault("last_fit", None)
     st.session_state.setdefault("results_text", "")
     st.session_state.setdefault("cv_svg", None)
+
     st.session_state.setdefault("ps_svg", None)
     st.session_state.setdefault("pump_system_text", "")
 
-    left, right = st.columns([1.1, 1.2])
+    st.subheader("Kv/Cv from points + Fit")
+    st.caption("Paste points (Q, ΔP). Calculates Kv/Cv and optionally fits ΔP = a·Q^n.")
 
-    with left:
-        st.subheader("Inputs")
+    sg = st.number_input("Specific Gravity (SG)", value=1.0, min_value=0.000001, step=0.01, key="kv_sg")
+    flow_unit = st.selectbox("Flow unit (input points)", FLOW_UNITS, index=4, key="kv_flow_unit")
+    dp_unit = st.selectbox("ΔP unit (input points)", DP_UNITS, index=1, key="kv_dp_unit")
 
-        sg = st.number_input("Specific Gravity (SG)", value=1.0, min_value=0.000001, step=0.01, key="kv_sg")
-        flow_unit = st.selectbox("Flow unit (input points)", FLOW_UNITS, index=4, key="kv_flow_unit")
-        dp_unit = st.selectbox("ΔP unit (input points)", DP_UNITS, index=1, key="kv_dp_unit")
+    points_text = st.text_area(
+        "Paste points (Q, ΔP) — one per line",
+        value="120, 35\n150, 45\n180, 62\n",
+        height=180,
+        key="kv_points_text"
+    )
 
-        st.markdown("**Paste points (Q, ΔP) — one per line**")
-        points_text = st.text_area(
-            "Example format: `120, 35`",
-            value="120, 35\n150, 45\n180, 62\n",
-            height=180,
-            key="kv_points_text"
-        )
-
-        b1, b2, b3 = st.columns(3)
-        with b1:
-            btn_calc = st.button("Calculate / Fit", use_container_width=True, key="btn_calc")
-        with b2:
-            btn_plot_cv = st.button("Plot Cv PQ", use_container_width=True, key="btn_plot_cv")
-        with b3:
-            btn_clear_cv = st.button("Clear Cv Plot", use_container_width=True, key="btn_clear_cv")
-
-        st.divider()
-        st.subheader("Pump vs System Curve (Separate Diagram)")
-        st.caption("Pump points use SAME units as above. System curve: ΔP_sys = ΔP0 + k·Q²")
-
-        pump_text = st.text_area(
-            "Pump curve points (Q, ΔP) — one per line",
-            value="0, 80\n50, 70\n100, 55\n150, 35\n200, 10\n",
-            height=140,
-            key="pump_points_text"
-        )
-
-        c_int1, c_int2 = st.columns(2)
-        with c_int1:
-            sys_dp0 = st.number_input("System ΔP0 (same ΔP unit)", value=5.0, key="sys_dp0")
-        with c_int2:
-            sys_k = st.number_input("System k (ΔP / Q²)", value=0.001, format="%.8f", key="sys_k")
-
-        st.markdown("**Plot options**")
-        plot_mode = st.selectbox(
-            "What to plot",
-            [
-                "Pump curve only",
-                "System curve only",
-                "Operating point only",
-                "Pump + System",
-                "Pump + System + Operating point",
-            ],
-            index=4,
-            key="ps_plot_mode"
-        )
-
-        legend_loc = st.selectbox(
-            "Legend location",
-            ["Auto", "Top-left", "Top-right", "Bottom-left", "Bottom-right", "Outside-right"],
-            index=0,
-            key="ps_legend_loc"
-        )
-
-        bb1, bb2, bb3 = st.columns(3)
-        with bb1:
-            btn_intersect = st.button("Compute Intersection", use_container_width=True, key="btn_intersect")
-        with bb2:
-            btn_plot_ps = st.button("Plot Pump/System", use_container_width=True, key="btn_plot_ps")
-        with bb3:
-            btn_clear_ps = st.button("Clear Pump/System Plot", use_container_width=True, key="btn_clear_ps")
+    b1, b2, b3 = st.columns(3)
+    with b1:
+        btn_calc = st.button("Calculate / Fit", use_container_width=True, key="btn_calc")
+    with b2:
+        btn_plot_cv = st.button("Plot Cv PQ", use_container_width=True, key="btn_plot_cv")
+    with b3:
+        btn_clear_cv = st.button("Clear Cv Plot", use_container_width=True, key="btn_clear_cv")
 
     if btn_clear_cv:
         st.session_state.cv_svg = None
-
-    if btn_clear_ps:
-        st.session_state.ps_svg = None
-        st.session_state.pump_system_text = ""
 
     if btn_calc:
         try:
@@ -950,7 +890,7 @@ with tabs[1]:
                 a, n_exp = fit_power_law(Q_m3h, dp_bar)
                 last_fit = {"a": a, "n": n_exp}
                 lines.append("\nFitted model (Q in m³/h, ΔP in bar):")
-                lines.append(f"  ΔP = a · Q^n")
+                lines.append("  ΔP = a · Q^n")
                 lines.append(f"  a = {a:.6g}")
                 lines.append(f"  n = {n_exp:.6g}")
 
@@ -977,7 +917,7 @@ with tabs[1]:
 
             Q_axis = [m3h_to_flow(q, data["flow_unit"]) for q in data["Q_m3h"]]
             dp_axis = [bar_to_dp(dpb, data["dp_unit"]) for dpb in data["dp_bar"]]
-            pts = list(zip(Q_axis, dp_axis))
+            pts_xy = list(zip(Q_axis, dp_axis))
 
             curves = []
             if fit and len(data["Q_m3h"]) >= 2:
@@ -1001,12 +941,77 @@ with tabs[1]:
                 xlabel=f"Flow [{data['flow_unit']}]",
                 ylabel=f"ΔP [{data['dp_unit']}]",
                 curves=curves,
-                points=pts,
+                points=pts_xy,
                 markers=[],
                 legend_loc="Auto"
             )
         except Exception as e:
             st.error(str(e))
+
+    st.subheader("Results")
+    st.text_area(
+        "Output",
+        value=st.session_state.get("results_text", "Click 'Calculate / Fit' to see results."),
+        height=260
+    )
+
+    st.subheader("Cv PQ Plot (Measured + Fit)")
+    if st.session_state.cv_svg:
+        st.components.v1.html(st.session_state.cv_svg, height=560, scrolling=False)
+    else:
+        st.info("No Cv plot yet. Click **Plot Cv PQ**.")
+
+    # ================================
+    # Pump vs System Curve (FULL WIDTH)
+    # ================================
+    st.divider()
+    st.subheader("Pump vs System Curve (Separate Diagram)")
+    st.caption("Pump points use SAME units as above. System curve: ΔP_sys = ΔP0 + k·Q²")
+
+    pump_text = st.text_area(
+        "Pump curve points (Q, ΔP) — one per line",
+        value="0, 80\n50, 70\n100, 55\n150, 35\n200, 10\n",
+        height=140,
+        key="pump_points_text"
+    )
+
+    c_int1, c_int2, c_int3 = st.columns([1.2, 1.2, 1.0])
+    with c_int1:
+        sys_dp0 = st.number_input("System ΔP0 (same ΔP unit)", value=5.0, key="sys_dp0")
+    with c_int2:
+        sys_k = st.number_input("System k (ΔP / Q²)", value=0.001, format="%.8f", key="sys_k")
+    with c_int3:
+        legend_loc = st.selectbox(
+            "Legend location",
+            ["Auto", "Top-left", "Top-right", "Bottom-left", "Bottom-right", "Outside-right"],
+            index=0,
+            key="ps_legend_loc"
+        )
+
+    plot_mode = st.selectbox(
+        "What to plot",
+        [
+            "Pump curve only",
+            "System curve only",
+            "Operating point only",
+            "Pump + System",
+            "Pump + System + Operating point",
+        ],
+        index=4,
+        key="ps_plot_mode"
+    )
+
+    bb1, bb2, bb3 = st.columns(3)
+    with bb1:
+        btn_intersect = st.button("Compute Intersection", use_container_width=True, key="btn_intersect")
+    with bb2:
+        btn_plot_ps = st.button("Plot Pump/System", use_container_width=True, key="btn_plot_ps")
+    with bb3:
+        btn_clear_ps = st.button("Clear Pump/System Plot", use_container_width=True, key="btn_clear_ps")
+
+    if btn_clear_ps:
+        st.session_state.ps_svg = None
+        st.session_state.pump_system_text = ""
 
     if btn_intersect:
         try:
@@ -1063,7 +1068,12 @@ with tabs[1]:
             if plot_mode in ["Pump curve only", "Pump + System", "Pump + System + Operating point"]:
                 pump_Q_axis = [m3h_to_flow(q, flow_unit) for q in pump_Q_m3h]
                 pump_dp_axis = [bar_to_dp(dpb, dp_unit) for dpb in pump_dp_bar]
-                curves.append({"name": "Pump curve", "pts": list(zip(pump_Q_axis, pump_dp_axis)), "stroke": "#d64545", "width": 3})
+                curves.append({
+                    "name": "Pump curve",
+                    "pts": list(zip(pump_Q_axis, pump_dp_axis)),
+                    "stroke": "#d64545",
+                    "width": 3
+                })
 
             if plot_mode in ["System curve only", "Pump + System", "Pump + System + Operating point"]:
                 if len(pump_Q_m3h) >= 2:
@@ -1076,7 +1086,12 @@ with tabs[1]:
                 sys_dp_bar = [system_dp(q, dp0_bar, k_bar_per_m3h2) for q in qs_m3h]
                 sys_Q_axis = [m3h_to_flow(q, flow_unit) for q in qs_m3h]
                 sys_dp_axis = [bar_to_dp(dpb, dp_unit) for dpb in sys_dp_bar]
-                curves.append({"name": "System curve", "pts": list(zip(sys_Q_axis, sys_dp_axis)), "stroke": "#2f855a", "width": 3})
+                curves.append({
+                    "name": "System curve",
+                    "pts": list(zip(sys_Q_axis, sys_dp_axis)),
+                    "stroke": "#2f855a",
+                    "width": 3
+                })
 
             if plot_mode in ["Operating point only", "Pump + System + Operating point"]:
                 if len(pump_Q_m3h) < 2:
@@ -1107,36 +1122,16 @@ with tabs[1]:
         except Exception as e:
             st.error(str(e))
 
-    with right:
-        st.subheader("Results")
-        st.text_area(
-            "Output",
-            value=st.session_state.get("results_text", "Click 'Calculate / Fit' to see results."),
-            height=260
-        )
+    # Plot + text in same full-width block
+    if st.session_state.ps_svg:
+        st.components.v1.html(st.session_state.ps_svg, height=560, scrolling=False)
+    else:
+        st.info("No pump/system plot yet. Click **Plot Pump/System**.")
 
-        st.subheader("Cv PQ Plot (Measured + Fit)")
-        if st.session_state.cv_svg:
-            st.components.v1.html(st.session_state.cv_svg, height=560, scrolling=False)
-        else:
-            st.info("No Cv plot yet. Click **Plot Cv PQ**.")
-
-        st.subheader("Pump/System Plot (Separate Diagram)")
-
-        # 1) Plot first (drawing)
-        if st.session_state.ps_svg:
-            st.components.v1.html(st.session_state.ps_svg, height=560, scrolling=False)
-        else:
-            st.info("No pump/system plot yet. Click **Plot Pump/System**.")
-
-        # 2) Results text under the plot, with clean separate lines
-        if st.session_state.pump_system_text:
-            st.markdown(
-                "**Pump/System calculation results**\n\n" +
-                st.session_state.pump_system_text.replace("\n", "  \n")
-            )
-        else:
-            st.info("System curve equation and intersection will show here after **Plot Pump/System** (or **Compute Intersection**).")
+    if st.session_state.pump_system_text:
+        st.markdown(st.session_state.pump_system_text.replace("\n", "  \n"))
+    else:
+        st.info("System equation and intersection will appear here after plotting (or computing intersection).")
 
 
 # ---------- Thermal Calculator ----------
@@ -1147,7 +1142,6 @@ with tabs[2]:
     st.session_state.setdefault("thermal_result", None)
 
     t1, t2, t3, t4 = st.columns([1.2, 1.2, 1.2, 1.2])
-
     with t1:
         p_val = st.number_input("Thermal power", value=300.0, min_value=0.0, key="th_p_val")
     with t2:
@@ -1179,9 +1173,8 @@ with tabs[2]:
         try:
             if a_val <= 0:
                 raise ValueError("Area must be > 0")
-
             p_w = power_to_w(p_val, p_unit)
-            a_m2 = area_to_m2_for_thermal(a_val, a_unit)
+            a_m2 = area_to_m2(a_val, a_unit)
             td = thermal_density_from_base(p_w, a_m2, out_unit)
 
             st.session_state.thermal_result = (
