@@ -1315,7 +1315,7 @@ st.session_state.setdefault("ht_q_out_unit", "kW")
 # -------------------------------
 mode = st.radio(
     "Mass flow definition",
-    ["Mass flow rate (ṁ)", "Density (ρ) + Volumetric flow (V̇)"],
+    ["Mass flow rate (ṁ)", "Density (ρ) + Volume flow rate (V̇)"],
     horizontal=True,
     key="ht_mode"
 )
