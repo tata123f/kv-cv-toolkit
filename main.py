@@ -1371,9 +1371,9 @@ with c6:
 # -------------------------------
 b1, b2 = st.columns([1, 1])
 with b1:
-    btn_calc_q = st.button("Calculate Heat Transfer", use_container_width=True)
+    btn_calc_q = st.button("Calculate Heat Transfer", use_container_width=True, key="ht_calc_btn")
 with b2:
-    btn_clear_q = st.button("Clear Result", use_container_width=True)
+    btn_clear_q = st.button("Clear Result", use_container_width=True, key="ht_clear_btn")
 
 if btn_clear_q:
     st.session_state.ht_result_W = None
@@ -1400,7 +1400,7 @@ if btn_calc_q:
         st.error(str(e))
 
 # -------------------------------
-# Output
+# Output (always rendered if result exists)
 # -------------------------------
 if st.session_state.ht_result_W is not None:
     out1, out2 = st.columns([2.5, 1])
@@ -1413,7 +1413,6 @@ if st.session_state.ht_result_W is not None:
         )
 
     Q_out = w_to_q_units(st.session_state.ht_result_W, st.session_state.ht_q_out_unit)
-
     mdot_si, cpv, cpu, dtv, dtu = st.session_state.ht_inputs
 
     st.success(
@@ -1423,33 +1422,42 @@ if st.session_state.ht_result_W is not None:
 else:
     st.info("Enter inputs and click **Calculate Heat Transfer**.")
 
-    st.divider()
+# =========================================================
+# ✅ Cp reference chart MUST be outside button conditionals
+# =========================================================
+st.divider()
+st.subheader("Specific Heat Cp Reference Chart")
+st.caption("Quick reference only (typical values). Use REFPROP/CoolProp/vendor data for design-critical work.")
 
-    st.subheader("Specific Heat Cp Reference Chart")
-    st.caption("Quick reference only (typical values). Use REFPROP/CoolProp/vendor data for design-critical work.")
+fluid = st.selectbox("Fluid", list(CP_REF.keys()), index=3, key="cp_fluid_sel")
+data = CP_REF[fluid]
 
-    fluid = st.selectbox("Fluid", list(CP_REF.keys()), index=3, key="cp_fluid_sel")
-    data = CP_REF[fluid]
-    tmin, tmax = min(data["temps_C"]), max(data["temps_C"])
-    t_query = st.slider(
-        "Temperature (°C)",
-        min_value=float(tmin),
-        max_value=float(tmax),
-        value=float(min(20, tmax)),
-        step=1.0,
-        key="cp_temp_slider"
-    )
+tmin, tmax = min(data["temps_C"]), max(data["temps_C"])
+default_t = 20.0
+if default_t < tmin:
+    default_t = float(tmin)
+if default_t > tmax:
+    default_t = float(tmax)
 
-    cp_kjkgk = interp_1d(t_query, data["temps_C"], data["cp_kJkgK"])
-    st.info(f"At **{t_query:.0f} °C**: Cp ≈ **{cp_kjkgk:.4g} kJ/kg·K** (≈ {cp_kjkgk*1000:.0f} J/kg·K)")
+t_query = st.slider(
+    "Temperature (°C)",
+    min_value=float(tmin),
+    max_value=float(tmax),
+    value=float(default_t),
+    step=1.0,
+    key="cp_temp_slider"
+)
 
-    # Table
-    chart_df = pd.DataFrame({
-        "Temp (°C)": data["temps_C"],
-        "Cp (kJ/kg·K)": data["cp_kJkgK"],
-    })
-    st.dataframe(chart_df, use_container_width=True, hide_index=True)
+cp_kjkgk = interp_1d(t_query, data["temps_C"], data["cp_kJkgK"])
+st.info(f"At **{t_query:.0f} °C**: Cp ≈ **{cp_kjkgk:.4g} kJ/kg·K** (≈ {cp_kjkgk*1000:.0f} J/kg·K)")
 
-    # Line chart (use Temp as the x-axis by setting it as index)
-    chart_df2 = chart_df.set_index("Temp (°C)")
-    st.line_chart(chart_df2, height=240, use_container_width=True)
+chart_df = pd.DataFrame({
+    "Temp (°C)": data["temps_C"],
+    "Cp (kJ/kg·K)": data["cp_kJkgK"],
+})
+
+st.dataframe(chart_df, use_container_width=True, hide_index=True)
+
+# Streamlit line_chart expects x to be index OR included as a column without x=
+chart_df2 = chart_df.set_index("Temp (°C)")
+st.line_chart(chart_df2, height=240, use_container_width=True)
