@@ -1339,7 +1339,7 @@ else:
     with r2:
         rho_unit = st.selectbox("ρ unit", DENSITY_UNITS, index=0, key="ht_rho_unit")
     with r3:
-        vdot_val = st.number_input("Volumetric flow V̇", value=10.0, min_value=0.0, key="ht_vdot_val")
+        vdot_val = st.number_input("Volume flow rate V̇", value=10.0, min_value=0.0, key="ht_vdot_val")
     with r4:
         vdot_unit = st.selectbox("V̇ unit", FLOW_UNITS, index=4, key="ht_vdot_unit")
 
