@@ -1301,40 +1301,40 @@ with tabs[2]:
     st.divider()
 
     st.subheader("Heat Transfer Calculator")
-st.caption("Compute Q = ṁ · Cp · ΔT")
+    st.caption("Compute Q = ṁ · Cp · ΔT")
+    
+    mode = st.radio(
+        "Input mode",
+        ["Mass flow rate (ṁ)", "Density (ρ) + Volumetric flow (V̇)"],
+        horizontal=True,
+        key="ht_mode"
+    )
 
-mode = st.radio(
-    "Input mode",
-    ["Mass flow rate (ṁ)", "Density (ρ) + Volumetric flow (V̇)"],
-    horizontal=True,
-    key="ht_mode"
-)
+    if mode == "Mass flow rate (ṁ)":
+        c1, c2 = st.columns([1.4, 1.0])
+        with c1:
+            mdot_val = st.number_input("Mass flow", value=1.0, min_value=0.0, key="ht_mdot_val")
+        with c2:
+            mdot_unit = st.selectbox("Mass flow unit", MASSFLOW_UNITS, index=0, key="ht_mdot_unit")
 
-if mode == "Mass flow rate (ṁ)":
-    c1, c2 = st.columns([1.4, 1.0])
-    with c1:
-        mdot_val = st.number_input("Mass flow", value=1.0, min_value=0.0, key="ht_mdot_val")
-    with c2:
-        mdot_unit = st.selectbox("Mass flow unit", MASSFLOW_UNITS, index=0, key="ht_mdot_unit")
+        mdot_kg_s = massflow_to_kgs(mdot_val, mdot_unit)
 
-    mdot_kg_s = massflow_to_kgs(mdot_val, mdot_unit)
+    else:
+        r1, r2, r3, r4 = st.columns([1.1, 1.0, 1.1, 1.0])
+        with r1:
+            rho_val = st.number_input("Density (ρ)", value=1000.0, min_value=0.0, key="ht_rho_val")
+        with r2:
+            rho_unit = st.selectbox("Density unit", DENSITY_UNITS, index=0, key="ht_rho_unit")
+        with r3:    
+            vdot_val = st.number_input("Volumetric flow (V̇)", value=10.0, min_value=0.0, key="ht_vdot_val")
+        with r4:    
+            vdot_unit = st.selectbox("Volumetric flow unit", FLOW_UNITS, index=4, key="ht_vdot_unit")  # default L/min
 
-else:
-    r1, r2, r3, r4 = st.columns([1.1, 1.0, 1.1, 1.0])
-    with r1:
-        rho_val = st.number_input("Density (ρ)", value=1000.0, min_value=0.0, key="ht_rho_val")
-    with r2:
-        rho_unit = st.selectbox("Density unit", DENSITY_UNITS, index=0, key="ht_rho_unit")
-    with r3:
-        vdot_val = st.number_input("Volumetric flow (V̇)", value=10.0, min_value=0.0, key="ht_vdot_val")
-    with r4:
-        vdot_unit = st.selectbox("Volumetric flow unit", FLOW_UNITS, index=4, key="ht_vdot_unit")  # default L/min
+        rho_kg_m3 = density_to_kgm3(rho_val, rho_unit)
+        vdot_m3_s = flow_to_m3s(vdot_val, vdot_unit)
+        mdot_kg_s = rho_kg_m3 * vdot_m3_s
 
-    rho_kg_m3 = density_to_kgm3(rho_val, rho_unit)
-    vdot_m3_s = flow_to_m3s(vdot_val, vdot_unit)
-    mdot_kg_s = rho_kg_m3 * vdot_m3_s
-
-    st.info(f"Derived mass flow: **ṁ = {mdot_kg_s:.6g} kg/s** (from ρ·V̇)")
+        st.info(f"Derived mass flow: **ṁ = {mdot_kg_s:.6g} kg/s** (from ρ·V̇)")
 
     st.divider()
 
