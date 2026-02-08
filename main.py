@@ -551,6 +551,35 @@ def thermal_density_from_base(p_w, area_m2, out_unit):
     raise ValueError("Unsupported thermal density unit")
 
 
+# ================================
+# Heat transfer helpers  ✅ NEW
+# ================================
+DENSITY_UNITS = ["kg/m3", "g/cm3", "lb/ft3"]
+MASSFLOW_UNITS = ["kg/s", "kg/h", "lbm/s", "lbm/min", "lbm/h"]
+
+def density_to_kgm3(rho, unit):
+    if unit == "kg/m3":
+        return rho
+    if unit == "g/cm3":
+        return rho * 1000.0
+    if unit == "lb/ft3":
+        return rho * 16.01846337396014  # 1 lb/ft3 = 16.018463... kg/m3
+    raise ValueError(f"Unsupported density unit: {unit}")
+
+def massflow_to_kgs(mdot, unit):
+    if unit == "kg/s":
+        return mdot
+    if unit == "kg/h":
+        return mdot / 3600.0
+    if unit == "lbm/s":
+        return mdot * 0.45359237
+    if unit == "lbm/min":
+        return mdot * 0.45359237 / 60.0
+    if unit == "lbm/h":
+        return mdot * 0.45359237 / 3600.0
+    raise ValueError(f"Unsupported mass flow unit: {unit}")
+
+
 # ---- Q = m_dot * Cp * dT helpers ----
 MDOT_UNITS = ["kg/s", "kg/min", "kg/h", "g/s", "lb/s", "lb/min", "lb/h"]
 CP_UNITS = ["J/kg-K", "kJ/kg-K", "J/g-K", "Btu/lbm-°F"]
@@ -1272,58 +1301,40 @@ with tabs[2]:
     st.divider()
 
     st.subheader("Heat Transfer Calculator")
-    st.caption("Q = ṁ · Cp · ΔT  (choose your input/output units)")
+st.caption("Compute Q = ṁ · Cp · ΔT")
 
-    st.session_state.setdefault("q_mcp_result", None)
+mode = st.radio(
+    "Input mode",
+    ["Mass flow rate (ṁ)", "Density (ρ) + Volumetric flow (V̇)"],
+    horizontal=True,
+    key="ht_mode"
+)
 
-    c1, c2, c3, c4 = st.columns([1.2, 1.2, 1.2, 1.2])
+if mode == "Mass flow rate (ṁ)":
+    c1, c2 = st.columns([1.4, 1.0])
     with c1:
-        mdot_val = st.number_input("Mass flow ṁ", value=1.0, min_value=0.0, key="q_mdot_val")
+        mdot_val = st.number_input("Mass flow", value=1.0, min_value=0.0, key="ht_mdot_val")
     with c2:
-        mdot_unit = st.selectbox("ṁ unit", MDOT_UNITS, index=0, key="q_mdot_unit")
-    with c3:
-        cp_val = st.number_input("Specific heat Cp", value=4.18, min_value=0.0, key="q_cp_val")
-    with c4:
-        cp_unit = st.selectbox("Cp unit", CP_UNITS, index=1, key="q_cp_unit")
+        mdot_unit = st.selectbox("Mass flow unit", MASSFLOW_UNITS, index=0, key="ht_mdot_unit")
 
-    d1, d2, d3 = st.columns([1.2, 1.2, 1.6])
-    with d1:
-        dt_val = st.number_input("ΔT", value=5.0, min_value=0.0, key="q_dt_val")
-    with d2:
-        dt_unit = st.selectbox("ΔT unit", DT_UNITS, index=1, key="q_dt_unit")
-    with d3:
-        q_out_unit = st.selectbox("Output Q unit", Q_UNITS, index=1, key="q_out_unit")
+    mdot_kg_s = massflow_to_kgs(mdot_val, mdot_unit)
 
-    b1, b2 = st.columns([1, 1])
-    with b1:
-        q_calc = st.button("Calculate Q", use_container_width=True, key="q_calc_btn")
-    with b2:
-        q_clear = st.button("Clear Q Result", use_container_width=True, key="q_clear_btn")
+else:
+    r1, r2, r3, r4 = st.columns([1.1, 1.0, 1.1, 1.0])
+    with r1:
+        rho_val = st.number_input("Density (ρ)", value=1000.0, min_value=0.0, key="ht_rho_val")
+    with r2:
+        rho_unit = st.selectbox("Density unit", DENSITY_UNITS, index=0, key="ht_rho_unit")
+    with r3:
+        vdot_val = st.number_input("Volumetric flow (V̇)", value=10.0, min_value=0.0, key="ht_vdot_val")
+    with r4:
+        vdot_unit = st.selectbox("Volumetric flow unit", FLOW_UNITS, index=4, key="ht_vdot_unit")  # default L/min
 
-    if q_clear:
-        st.session_state.q_mcp_result = None
+    rho_kg_m3 = density_to_kgm3(rho_val, rho_unit)
+    vdot_m3_s = flow_to_m3s(vdot_val, vdot_unit)
+    mdot_kg_s = rho_kg_m3 * vdot_m3_s
 
-    if q_calc:
-        try:
-            mdot_kgps = mdot_to_kgps(mdot_val, mdot_unit)
-            cp_jkgk = cp_to_jkgk(cp_val, cp_unit)
-            dt_k = dt_to_k(dt_val, dt_unit)
-            q_w = mdot_kgps * cp_jkgk * dt_k
-            q_out = w_to_q_units(q_w, q_out_unit)
-            st.session_state.q_mcp_result = (mdot_val, mdot_unit, cp_val, cp_unit, dt_val, dt_unit, q_out, q_out_unit)
-        except Exception as e:
-            st.session_state.q_mcp_result = ("__ERROR__", str(e))
-
-    if st.session_state.q_mcp_result is not None:
-        if st.session_state.q_mcp_result[0] == "__ERROR__":
-            st.error(st.session_state.q_mcp_result[1])
-        else:
-            mv, mu, cv, cu, dv, du, qv, qu = st.session_state.q_mcp_result
-            st.success(
-                f"ṁ={mv:g} {mu}, Cp={cv:g} {cu}, ΔT={dv:g} {du}  →  **Q={qv:.6g} {qu}**"
-            )
-    else:
-        st.info("Enter ṁ, Cp, and ΔT, then click **Calculate Q**.")
+    st.info(f"Derived mass flow: **ṁ = {mdot_kg_s:.6g} kg/s** (from ρ·V̇)")
 
     st.divider()
 
