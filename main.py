@@ -1301,40 +1301,127 @@ with tabs[2]:
     st.divider()
 
     st.subheader("Heat Transfer Calculator")
-    st.caption("Compute Q = ṁ · Cp · ΔT")
-    
-    mode = st.radio(
-        "Input mode",
-        ["Mass flow rate (ṁ)", "Density (ρ) + Volumetric flow (V̇)"],
-        horizontal=True,
-        key="ht_mode"
+st.caption("Compute heat transfer:  Q = ṁ · Cp · ΔT")
+
+# -------------------------------
+# Persistent state
+# -------------------------------
+st.session_state.setdefault("ht_result_W", None)
+st.session_state.setdefault("ht_inputs", None)
+st.session_state.setdefault("ht_q_out_unit", "kW")
+
+# -------------------------------
+# Input mode
+# -------------------------------
+mode = st.radio(
+    "Mass flow definition",
+    ["Mass flow rate (ṁ)", "Density (ρ) + Volumetric flow (V̇)"],
+    horizontal=True,
+    key="ht_mode"
+)
+
+# -------------------------------
+# Mass flow calculation
+# -------------------------------
+if mode == "Mass flow rate (ṁ)":
+    c1, c2 = st.columns([1.3, 1.0])
+    with c1:
+        mdot_val = st.number_input("Mass flow", value=1.0, min_value=0.0, key="ht_mdot_val")
+    with c2:
+        mdot_unit = st.selectbox("Unit", MDOT_UNITS, index=0, key="ht_mdot_unit")
+
+    mdot_kg_s = mdot_to_kgps(mdot_val, mdot_unit)
+
+else:
+    r1, r2, r3, r4 = st.columns([1.1, 1.0, 1.1, 1.0])
+    with r1:
+        rho_val = st.number_input("Density ρ", value=1000.0, min_value=0.0, key="ht_rho_val")
+    with r2:
+        rho_unit = st.selectbox("ρ unit", DENSITY_UNITS, index=0, key="ht_rho_unit")
+    with r3:
+        vdot_val = st.number_input("Volumetric flow V̇", value=10.0, min_value=0.0, key="ht_vdot_val")
+    with r4:
+        vdot_unit = st.selectbox("V̇ unit", FLOW_UNITS, index=4, key="ht_vdot_unit")
+
+    rho_kg_m3 = density_to_kgm3(rho_val, rho_unit)
+    vdot_m3_s = flow_to_m3s(vdot_val, vdot_unit)
+    mdot_kg_s = rho_kg_m3 * vdot_m3_s
+
+    st.info(f"Derived mass flow: **ṁ = {mdot_kg_s:.6g} kg/s**")
+
+st.divider()
+
+# -------------------------------
+# Cp and ΔT
+# -------------------------------
+c3, c4 = st.columns([1.3, 1.0])
+with c3:
+    cp_val = st.number_input("Specific heat Cp", value=4.18, min_value=0.0, key="ht_cp_val")
+with c4:
+    cp_unit = st.selectbox("Cp unit", CP_UNITS, index=1, key="ht_cp_unit")
+
+c5, c6 = st.columns([1.3, 1.0])
+with c5:
+    dt_val = st.number_input("Temperature difference ΔT", value=10.0, key="ht_dt_val")
+with c6:
+    dt_unit = st.selectbox("ΔT unit", DT_UNITS, index=0, key="ht_dt_unit")
+
+# -------------------------------
+# Buttons
+# -------------------------------
+b1, b2 = st.columns([1, 1])
+with b1:
+    btn_calc_q = st.button("Calculate Heat Transfer", use_container_width=True)
+with b2:
+    btn_clear_q = st.button("Clear Result", use_container_width=True)
+
+if btn_clear_q:
+    st.session_state.ht_result_W = None
+    st.session_state.ht_inputs = None
+
+# -------------------------------
+# Calculation
+# -------------------------------
+if btn_calc_q:
+    try:
+        cp_JkgK = cp_to_jkgk(cp_val, cp_unit)
+        dt_K = dt_to_k(dt_val, dt_unit)
+
+        Q_W = mdot_kg_s * cp_JkgK * dt_K
+
+        st.session_state.ht_result_W = Q_W
+        st.session_state.ht_inputs = (
+            mdot_kg_s,
+            cp_val, cp_unit,
+            dt_val, dt_unit
+        )
+
+    except Exception as e:
+        st.error(str(e))
+
+# -------------------------------
+# Output
+# -------------------------------
+if st.session_state.ht_result_W is not None:
+    out1, out2 = st.columns([2.5, 1])
+    with out2:
+        st.session_state.ht_q_out_unit = st.selectbox(
+            "Output unit",
+            Q_UNITS,
+            index=Q_UNITS.index(st.session_state.ht_q_out_unit),
+            key="ht_q_out_unit_sel"
+        )
+
+    Q_out = w_to_q_units(st.session_state.ht_result_W, st.session_state.ht_q_out_unit)
+
+    mdot_si, cpv, cpu, dtv, dtu = st.session_state.ht_inputs
+
+    st.success(
+        f"ṁ = {mdot_si:.6g} kg/s,  Cp = {cpv:g} {cpu},  ΔT = {dtv:g} {dtu}  →  "
+        f"**Q = {Q_out:.6g} {st.session_state.ht_q_out_unit}**"
     )
-
-    if mode == "Mass flow rate (ṁ)":
-        c1, c2 = st.columns([1.4, 1.0])
-        with c1:
-            mdot_val = st.number_input("Mass flow", value=1.0, min_value=0.0, key="ht_mdot_val")
-        with c2:
-            mdot_unit = st.selectbox("Mass flow unit", MASSFLOW_UNITS, index=0, key="ht_mdot_unit")
-
-        mdot_kg_s = massflow_to_kgs(mdot_val, mdot_unit)
-
-    else:
-        r1, r2, r3, r4 = st.columns([1.1, 1.0, 1.1, 1.0])
-        with r1:
-            rho_val = st.number_input("Density (ρ)", value=1000.0, min_value=0.0, key="ht_rho_val")
-        with r2:
-            rho_unit = st.selectbox("Density unit", DENSITY_UNITS, index=0, key="ht_rho_unit")
-        with r3:    
-            vdot_val = st.number_input("Volumetric flow (V̇)", value=10.0, min_value=0.0, key="ht_vdot_val")
-        with r4:    
-            vdot_unit = st.selectbox("Volumetric flow unit", FLOW_UNITS, index=4, key="ht_vdot_unit")  # default L/min
-
-        rho_kg_m3 = density_to_kgm3(rho_val, rho_unit)
-        vdot_m3_s = flow_to_m3s(vdot_val, vdot_unit)
-        mdot_kg_s = rho_kg_m3 * vdot_m3_s
-
-        st.info(f"Derived mass flow: **ṁ = {mdot_kg_s:.6g} kg/s** (from ρ·V̇)")
+else:
+    st.info("Enter inputs and click **Calculate Heat Transfer**.")
 
     st.divider()
 
