@@ -1215,41 +1215,73 @@ with tabs[1]:
         st.components.v1.html(st.session_state.ps_svg, height=560, scrolling=False)
     else:
         st.info("No pump/system plot yet. Click **Plot Pump/System**.")
-    # --- ASHRAE reference table (add in Kv/Cv tab) ---
+    
+    
+    # --- ASHRAE reference table (Kv/Cv tab) ---
     st.divider()
     st.subheader("ASHRAE 90.1-2019 Table 6.5.4.6 (Variable Flow) — Max kW vs ΔT")
-    st.caption("Based on flow rates per ASHRAE 90.1-2019 Table 6.5.4.6 for Variable Flow (values from your provided table image).")
+    st.caption(
+        "Based on flow rates per ASHRAE 90.1-2019 Table 6.5.4.6 for Variable Flow. "
+        "Includes a derived column: LPM = (L/s) × 60."
+    )
 
+    # Data from your provided table image
     ref_rows = [
-        {"DIN": 50,  "in": "2",     "l/s": 4.95,   "GPM": 78,   "m/s": 2.3, "ft/s": 7.5, "Max kW @ ΔT=4°C (7.2°F)": 83,   "Max kW @ ΔT=6°C (10.8°F)": 124,  "Max kW @ ΔT=8°C (14.4°F)": 166,  "Max kW @ ΔT=10°C (18°F)": 207},
-        {"DIN": 65,  "in": "2-1/2", "l/s": 6.94,   "GPM": 110,  "m/s": 2.2, "ft/s": 7.4, "Max kW @ ΔT=4°C (7.2°F)": 116,  "Max kW @ ΔT=6°C (10.8°F)": 174,  "Max kW @ ΔT=8°C (14.4°F)": 232,  "Max kW @ ΔT=10°C (18°F)": 290},
-        {"DIN": 80,  "in": "3",     "l/s": 10.73,  "GPM": 170,  "m/s": 2.2, "ft/s": 7.4, "Max kW @ ΔT=4°C (7.2°F)": 180,  "Max kW @ ΔT=6°C (10.8°F)": 269,  "Max kW @ ΔT=8°C (14.4°F)": 359,  "Max kW @ ΔT=10°C (18°F)": 449},
-        {"DIN": 100, "in": "4",     "l/s": 20.19,  "GPM": 320,  "m/s": 2.5, "ft/s": 8.1, "Max kW @ ΔT=4°C (7.2°F)": 338,  "Max kW @ ΔT=6°C (10.8°F)": 507,  "Max kW @ ΔT=8°C (14.4°F)": 676,  "Max kW @ ΔT=10°C (18°F)": 845},
-        {"DIN": 150, "in": "6",     "l/s": 42.90,  "GPM": 680,  "m/s": 2.3, "ft/s": 7.6, "Max kW @ ΔT=4°C (7.2°F)": 718,  "Max kW @ ΔT=6°C (10.8°F)": 1077, "Max kW @ ΔT=8°C (14.4°F)": 1436, "Max kW @ ΔT=10°C (18°F)": 1795},
-        {"DIN": 200, "in": "8",     "l/s": 69.40,  "GPM": 1100, "m/s": 2.1, "ft/s": 7.1, "Max kW @ ΔT=4°C (7.2°F)": 1162, "Max kW @ ΔT=6°C (10.8°F)": 1742, "Max kW @ ΔT=8°C (14.4°F)": 2323, "Max kW @ ΔT=10°C (18°F)": 2904},
-        {"DIN": 250, "in": "10",    "l/s": 100.94, "GPM": 1600, "m/s": 2.0, "ft/s": 6.5, "Max kW @ ΔT=4°C (7.2°F)": 1690, "Max kW @ ΔT=6°C (10.8°F)": 2534, "Max kW @ ΔT=8°C (14.4°F)": 3379, "Max kW @ ΔT=10°C (18°F)": 4224},
-        {"DIN": 300, "in": "12",    "l/s": 145.11, "GPM": 2300, "m/s": 2.0, "ft/s": 6.5, "Max kW @ ΔT=4°C (7.2°F)": 2429, "Max kW @ ΔT=6°C (10.8°F)": 3643, "Max kW @ ΔT=8°C (14.4°F)": 4858, "Max kW @ ΔT=10°C (18°F)": 6072},
+        {"DIN": 50,  "in": "2",     "L/s": 4.95,   "LPM": 4.95 * 60,   "GPM": 78,   "m/s": 2.3, "ft/s": 7.5,
+         "Max kW @ ΔT=4°C (7.2°F)": 83,   "Max kW @ ΔT=6°C (10.8°F)": 124,  "Max kW @ ΔT=8°C (14.4°F)": 166,  "Max kW @ ΔT=10°C (18°F)": 207},
+
+        {"DIN": 65,  "in": "2-1/2", "L/s": 6.94,   "LPM": 6.94 * 60,   "GPM": 110,  "m/s": 2.2, "ft/s": 7.4,
+         "Max kW @ ΔT=4°C (7.2°F)": 116,  "Max kW @ ΔT=6°C (10.8°F)": 174,  "Max kW @ ΔT=8°C (14.4°F)": 232,  "Max kW @ ΔT=10°C (18°F)": 290},
+
+        {"DIN": 80,  "in": "3",     "L/s": 10.73,  "LPM": 10.73 * 60,  "GPM": 170,  "m/s": 2.2, "ft/s": 7.4,
+         "Max kW @ ΔT=4°C (7.2°F)": 180,  "Max kW @ ΔT=6°C (10.8°F)": 269,  "Max kW @ ΔT=8°C (14.4°F)": 359,  "Max kW @ ΔT=10°C (18°F)": 449},
+
+        {"DIN": 100, "in": "4",     "L/s": 20.19,  "LPM": 20.19 * 60,  "GPM": 320,  "m/s": 2.5, "ft/s": 8.1,
+         "Max kW @ ΔT=4°C (7.2°F)": 338,  "Max kW @ ΔT=6°C (10.8°F)": 507,  "Max kW @ ΔT=8°C (14.4°F)": 676,  "Max kW @ ΔT=10°C (18°F)": 845},
+
+        {"DIN": 150, "in": "6",     "L/s": 42.90,  "LPM": 42.90 * 60,  "GPM": 680,  "m/s": 2.3, "ft/s": 7.6,
+         "Max kW @ ΔT=4°C (7.2°F)": 718,  "Max kW @ ΔT=6°C (10.8°F)": 1077, "Max kW @ ΔT=8°C (14.4°F)": 1436, "Max kW @ ΔT=10°C (18°F)": 1795},
+
+        {"DIN": 200, "in": "8",     "L/s": 69.40,  "LPM": 69.40 * 60,  "GPM": 1100, "m/s": 2.1, "ft/s": 7.1,
+         "Max kW @ ΔT=4°C (7.2°F)": 1162, "Max kW @ ΔT=6°C (10.8°F)": 1742, "Max kW @ ΔT=8°C (14.4°F)": 2323, "Max kW @ ΔT=10°C (18°F)": 2904},
+
+        {"DIN": 250, "in": "10",    "L/s": 100.94, "LPM": 100.94 * 60, "GPM": 1600, "m/s": 2.0, "ft/s": 6.5,
+         "Max kW @ ΔT=4°C (7.2°F)": 1690, "Max kW @ ΔT=6°C (10.8°F)": 2534, "Max kW @ ΔT=8°C (14.4°F)": 3379, "Max kW @ ΔT=10°C (18°F)": 4224},
+
+        {"DIN": 300, "in": "12",    "L/s": 145.11, "LPM": 145.11 * 60, "GPM": 2300, "m/s": 2.0, "ft/s": 6.5,
+         "Max kW @ ΔT=4°C (7.2°F)": 2429, "Max kW @ ΔT=6°C (10.8°F)": 3643, "Max kW @ ΔT=8°C (14.4°F)": 4858, "Max kW @ ΔT=10°C (18°F)": 6072},
     ]
 
     ref_df = pd.DataFrame(ref_rows)
 
-    # Optional: a nicer column order
+    # Optional: nicer ordering
     ref_df = ref_df[[
-        "DIN", "in", "l/s", "GPM", "m/s", "ft/s",
-        "Max kW @ ΔT=4°C (7.2°F)", "Max kW @ ΔT=6°C (10.8°F)",
-        "Max kW @ ΔT=8°C (14.4°F)", "Max kW @ ΔT=10°C (18°F)"
+        "DIN", "in",
+        "L/s", "LPM", "GPM",
+        "m/s", "ft/s",
+        "Max kW @ ΔT=4°C (7.2°F)",
+        "Max kW @ ΔT=6°C (10.8°F)",
+        "Max kW @ ΔT=8°C (14.4°F)",
+        "Max kW @ ΔT=10°C (18°F)",
     ]]
 
-    # Optional: light styling for the ΔT columns (Streamlit supports Styler)
     dt_cols = [
         "Max kW @ ΔT=4°C (7.2°F)",
         "Max kW @ ΔT=6°C (10.8°F)",
         "Max kW @ ΔT=8°C (14.4°F)",
         "Max kW @ ΔT=10°C (18°F)",
     ]
+
+    # Streamlit supports pandas Styler formatting
     styler = (
         ref_df.style
-        .format({"l/s": "{:.2f}", "m/s": "{:.1f}", "ft/s": "{:.1f}"})
+        .format({
+            "L/s": "{:.2f}",
+            "LPM": "{:.0f}",
+            "m/s": "{:.1f}",
+            "ft/s": "{:.1f}",
+            "GPM": "{:.0f}",
+        })
         .format({c: "{:.0f}" for c in dt_cols})
         .set_properties(**{"text-align": "center"})
     )
@@ -1257,11 +1289,8 @@ with tabs[1]:
     st.dataframe(styler, use_container_width=True, hide_index=True)
 
     st.caption(
-        "Notes (from table): Values are based on standard weight carbon steel pipe dimensions (ASTM A53). "
-        "Highlighted ΔT ranges represent typical/low design ΔT for chilled-water systems."
-    )    
-
-
+        "Notes (from table): Values are based on standard weight carbon steel pipe dimensions (ASTM A53)."
+    )
 
 # ---------- Thermal Calculator ----------
 with tabs[2]:
