@@ -1048,7 +1048,7 @@ with tabs[1]:
         "Output",
         value=st.session_state.get("results_text", "Click 'Calculate / Fit' to see results."),
         height=260,
-        key="kv_results_area"
+        disabled=True,          # output-only
     )
 
     st.subheader("Cv PQ Plot (Measured + Fit)")
